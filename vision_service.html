@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Осмотр ТС - Сентрас Иншуранс</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        /* CSS Стили */
+        :root {
+            --primary-color: #0055A5;
+            --secondary-color: #f4f7f9;
+            --text-color: #333;
+            --border-color: #e0e0e0;
+            --success-color: #4CAF50;
+            --error-color: #F44336;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: var(--secondary-color);
+            color: var(--text-color);
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        header {
+            background-color: #fff;
+            padding: 15px 30px;
+            display: flex;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        .logo-container img {
+            height: 40px;
+        }
+
+        .logo-container span {
+            font-size: 1.2em;
+            font-weight: 700;
+            color: var(--primary-color);
+            margin-left: 15px;
+            vertical-align: middle;
+        }
+
+        main {
+            flex-grow: 1;
+            padding: 20px;
+            max-width: 900px;
+            margin: 0 auto;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        .screen { display: none; }
+        .screen.active { display: block; }
+        
+        .card {
+            background-color: #fff;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            text-align: center;
+        }
+        
+        h1, h2 { color: var(--primary-color); }
+        p { line-height: 1.6; }
+
+        .btn {
+            display: inline-block;
+            background-color: var(--primary-color);
+            color: #fff;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1em;
+            font-weight: 500;
+            cursor: pointer;
+            text-decoration: none;
+            transition: background-color 0.3s, transform 0.2s;
+            margin-top: 10px;
+        }
+        .btn:hover {
+            background-color: #004488;
+            transform: translateY(-2px);
+        }
+        .btn:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .btn-secondary {
+            background-color: #6c757d;
+        }
+        .btn-secondary:hover {
+            background-color: #5a6268;
+        }
+        
+        /* Система вкладок */
+        .tab-nav {
+            display: flex;
+            border-bottom: 2px solid var(--border-color);
+            margin-bottom: 25px;
+        }
+        .tab-btn {
+            padding: 15px 25px;
+            cursor: pointer;
+            border: none;
+            background-color: transparent;
+            font-size: 1.1em;
+            font-weight: 500;
+            color: #666;
+            position: relative;
+            border-bottom: 3px solid transparent;
+            transition: color 0.3s, border-color 0.3s;
+        }
+        .tab-btn:hover {
+            color: var(--primary-color);
+        }
+        .tab-btn.active {
+            color: var(--primary-color);
+            border-bottom-color: var(--primary-color);
+        }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        /* Экран Осмотра */
+        .inspection-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .angle-slot {
+            border: 2px dashed var(--border-color);
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+            cursor: pointer;
+            transition: border-color 0.3s, background-color 0.3s;
+            position: relative;
+            aspect-ratio: 4/3;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        .angle-slot:hover { border-color: var(--primary-color); }
+        .angle-slot.active {
+            border-color: var(--primary-color);
+            border-style: solid;
+            background-color: #f0f6ff;
+        }
+        .angle-slot.completed::after {
+            content: '✔';
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            color: var(--success-color);
+            font-size: 1.5em;
+            font-weight: bold;
+        }
+        .angle-slot img.preview, #single-photo-preview img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: 6px;
+        }
+        
+        #camera-area { margin-top: 20px; }
+        .camera-container {
+            position: relative;
+            max-width: 640px;
+            margin: auto;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        #video-feed {
+            width: 100%;
+            display: block;
+        }
+        .camera-overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .camera-overlay svg {
+            width: 80%;
+            height: 80%;
+            opacity: 0.4;
+            stroke: #fff;
+            stroke-width: 2px;
+            fill: none;
+        }
+        
+        .guidance {
+            text-align: center;
+            margin-top: 10px;
+            font-weight: 500;
+        }
+        #tilt-indicator {
+            display: inline-block;
+            width: 100px;
+            height: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            position: relative;
+            background: linear-gradient(to right, var(--error-color), var(--success-color), var(--error-color));
+        }
+        #tilt-marker {
+            position: absolute;
+            top: -5px;
+            left: 50%;
+            width: 2px;
+            height: 20px;
+            background: var(--text-color);
+            transform: translateX(-50%);
+        }
+        .camera-controls {
+            margin-top: 20px;
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+        }
+        #file-upload-label {
+            cursor: pointer;
+        }
+
+        /* Загрузка одного фото */
+        #single-photo-uploader {
+            border: 2px dashed var(--border-color);
+            border-radius: 12px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            background-color: #fff;
+            transition: border-color 0.3s, background-color 0.3s;
+        }
+        #single-photo-uploader:hover {
+            border-color: var(--primary-color);
+            background-color: #f8faff;
+        }
+        #single-photo-preview {
+            margin-top: 20px;
+            max-width: 400px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        /* Экран обработки */
+        .loader {
+            border: 8px solid var(--secondary-color);
+            border-top: 8px solid var(--primary-color);
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        /* Экран результатов */
+        .results-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 30px;
+        }
+        @media (min-width: 768px) {
+            .results-grid { grid-template-columns: 1fr 1fr; }
+        }
+        .result-item { margin-bottom: 20px; }
+        .result-image-container {
+            position: relative;
+            margin-bottom: 15px;
+        }
+        .result-canvas {
+            max-width: 100%;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+        }
+        .result-list h3 { border-bottom: 2px solid var(--primary-color); padding-bottom: 10px; }
+        .damage-item {
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 10px;
+        }
+        .damage-item:nth-child(odd) { background-color: var(--secondary-color); }
+        .damage-item .part {
+            font-weight: bold;
+            color: var(--primary-color);
+        }
+        
+        .hidden { display: none; }
+        
+        /* Сообщение об ошибке */
+        #error-message {
+            display: none;
+            background-color: var(--error-color);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        #svg-templates { width: 0; height: 0; overflow: hidden; position: absolute; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="logo-container">
+            <img src="https://centras.kz/wp-content/uploads/2023/12/centras-insurance-col-768x268.png" alt="Логотип Сентрас Иншуранс" onerror="this.style.display='none'">
+            <span>Сентрас Иншуранс</span>
+        </div>
+    </header>
+
+    <main>
+        <section id="screen-start" class="screen active">
+            <div class="card">
+                <h1>Осмотр Транспортного Средства</h1>
+                <p>Выберите удобный для вас способ осмотра автомобиля.</p>
+                <div class="tab-nav">
+                    <button class="tab-btn active" data-tab="tab-multi-photo">Поэтапный осмотр</button>
+                    <button class="tab-btn" data-tab="tab-single-photo">Осмотр по 1 фото</button>
+                </div>
+
+                <!-- Вкладка 1: Поэтапный осмотр -->
+                <div id="tab-multi-photo" class="tab-content active">
+                    <p>Система проведет вас через 4 шага для комплексной оценки состояния вашего автомобиля. Нажмите "Начать", чтобы продолжить.</p>
+                    <button id="start-multi-btn" class="btn">Начать поэтапный осмотр</button>
+                </div>
+
+                <!-- Вкладка 2: Осмотр по 1 фото -->
+                <div id="tab-single-photo" class="tab-content">
+                    <p>Загрузите одну фотографию вашего автомобиля, и наш ИИ проведет экспресс-анализ на наличие повреждений.</p>
+                    <input type="file" id="single-file-input" accept="image/*" class="hidden">
+                    <div id="single-photo-uploader">
+                        <p>Нажмите, чтобы выбрать или перетащить файл</p>
+                    </div>
+                    <div id="single-photo-preview"></div>
+                    <button id="start-single-btn" class="btn" disabled>Отправить на анализ</button>
+                </div>
+            </div>
+        </section>
+
+        <section id="screen-inspection" class="screen">
+            <h2>Шаг 1: Сделайте или загрузите 4 фотографии</h2>
+            <p>Выберите ракурс, наведите камеру согласно подсказке и сделайте фото. Убедитесь, что автомобиль полностью помещается в кадр.</p>
+            
+            <div class="inspection-grid">
+                <div class="angle-slot" data-angle="front"><span>Вид спереди</span></div>
+                <div class="angle-slot" data-angle="rear"><span>Вид сзади</span></div>
+                <div class="angle-slot" data-angle="left"><span>Левая сторона</span></div>
+                <div class="angle-slot" data-angle="right"><span>Правая сторона</span></div>
+            </div>
+
+            <div id="camera-area" class="hidden card">
+                <h3 id="camera-title"></h3>
+                <div class="guidance">
+                    Держите телефон ровно:
+                    <div id="tilt-indicator"><div id="tilt-marker"></div></div>
+                </div>
+                <div class="camera-container">
+                    <video id="video-feed" playsinline autoplay muted></video>
+                    <div id="camera-overlay" class="camera-overlay"></div>
+                </div>
+                <div class="camera-controls">
+                    <button id="capture-btn" class="btn">Сделать фото</button>
+                    <label for="file-upload" class="btn btn-secondary">Загрузить файл</label>
+                    <input type="file" id="file-upload" accept="image/*" class="hidden">
+                </div>
+            </div>
+
+            <div style="text-align: center; margin-top: 30px;">
+                <button id="analyze-btn" class="btn" disabled>Отправить на анализ</button>
+                 <button id="back-to-start-btn" class="btn btn-secondary">Назад</button>
+            </div>
+        </section>
+
+        <section id="screen-processing" class="screen">
+            <div class="card">
+                <h2>Анализ фотографий</h2>
+                <p>Пожалуйста, подождите. Наш искусственный интеллект анализирует изображения. Это может занять до одной минуты.</p>
+                <div class="loader"></div>
+                 <p id="processing-status"></p>
+            </div>
+        </section>
+
+        <section id="screen-results" class="screen">
+            <h2>Результаты Осмотра</h2>
+            <div id="error-message"></div>
+            <p id="results-summary">Анализ завершен. Ниже представлены найденные повреждения.</p>
+            <div id="results-container"></div>
+            <div style="text-align: center; margin-top: 30px;">
+                <button onclick="window.location.reload()" class="btn">Начать новый осмотр</button>
+            </div>
+        </section>
+    </main>
+
+    <div id="svg-templates">
+        <svg id="svg-front" viewBox="0 0 100 60"><path d="M20 50 L10 40 L10 20 L20 10 L80 10 L90 20 L90 40 L80 50 Z M15 45 L15 15 L20 12 L80 12 L85 15 L85 45 L80 48 L20 48 Z M25 20h50v15H25z m-5 20h60v5H20z m5-25h5v-5h-5z m40 0h5v-5h-5z"></path></svg>
+        <svg id="svg-rear" viewBox="0 0 100 60"><path d="M20 50 L10 40 L10 20 L20 10 L80 10 L90 20 L90 40 L80 50 Z M15 45 L15 15 L20 12 L80 12 L85 15 L85 45 L80 48 L20 48 Z M25 35h50v5H25z m-5-15h10v10H20z m50 0h10v10H70z"></path></svg>
+        <svg id="svg-left" viewBox="0 0 120 60"><path d="M10 40 Q20 20 40 25 L80 20 L100 30 L110 40 L110 50 L10 50 Z M25 50 a5 5 0 1 0 10 0a5 5 0 1 0 -10 0 M85 50 a5 5 0 1 0 10 0 a5 5 0 1 0 -10 0"></path></svg>
+        <svg id="svg-right" viewBox="0 0 120 60"><path d="M110 40 Q100 20 80 25 L40 20 L20 30 L10 40 L10 50 L110 50 Z M35 50 a5 5 0 1 0 -10 0a5 5 0 1 0 10 0 M95 50 a5 5 0 1 0 -10 0 a5 5 0 1 0 10 0"></path></svg>
+    </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+
+    // Глобальное состояние приложения
+    const appState = {
+        currentAngle: null,
+        photos: {
+            front: null, rear: null, left: null, right: null,
+        },
+        singlePhoto: null,
+        stream: null,
+        mode: 'multi' // 'multi' или 'single'
+    };
+
+    // --- DOM Элементы ---
+    const screens = {
+        start: document.getElementById('screen-start'),
+        inspection: document.getElementById('screen-inspection'),
+        processing: document.getElementById('screen-processing'),
+        results: document.getElementById('screen-results'),
+    };
+    // Вкладки
+    const tabButtons = document.querySelectorAll('.tab-btn');
+    const tabContents = document.querySelectorAll('.tab-content');
+    // Кнопки
+    const startMultiBtn = document.getElementById('start-multi-btn');
+    const startSingleBtn = document.getElementById('start-single-btn');
+    const analyzeBtn = document.getElementById('analyze-btn');
+    const backToStartBtn = document.getElementById('back-to-start-btn');
+    // Поэтапный осмотр
+    const angleSlots = document.querySelectorAll('.angle-slot');
+    const cameraArea = document.getElementById('camera-area');
+    const cameraTitle = document.getElementById('camera-title');
+    const video = document.getElementById('video-feed');
+    const cameraOverlay = document.getElementById('camera-overlay');
+    const captureBtn = document.getElementById('capture-btn');
+    const fileUpload = document.getElementById('file-upload');
+    const tiltMarker = document.getElementById('tilt-marker');
+    // Осмотр по 1 фото
+    const singlePhotoUploader = document.getElementById('single-photo-uploader');
+    const singleFileInput = document.getElementById('single-file-input');
+    const singlePhotoPreview = document.getElementById('single-photo-preview');
+    // Результаты и статусы
+    const resultsContainer = document.getElementById('results-container');
+    const errorMessage = document.getElementById('error-message');
+    const resultsSummary = document.getElementById('results-summary');
+    const processingStatus = document.getElementById('processing-status');
+
+    // --- Управление экранами и вкладками ---
+    const showScreen = (screenName) => {
+        Object.values(screens).forEach(s => s.classList.remove('active'));
+        screens[screenName].classList.add('active');
+    };
+
+    tabButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            tabButtons.forEach(btn => btn.classList.remove('active'));
+            button.classList.add('active');
+            
+            const tabId = button.dataset.tab;
+            tabContents.forEach(content => {
+                content.classList.toggle('active', content.id === tabId);
+            });
+        });
+    });
+    
+    // --- Навигация и запуск сценариев ---
+    startMultiBtn.addEventListener('click', () => {
+        appState.mode = 'multi';
+        showScreen('inspection');
+    });
+    
+    startSingleBtn.addEventListener('click', () => {
+        if (!appState.singlePhoto) return;
+        appState.mode = 'single';
+        runAnalysis();
+    });
+
+    backToStartBtn.addEventListener('click', () => {
+        resetState();
+        showScreen('start');
+    });
+
+    // --- Логика Осмотра по 1 фото ---
+    singlePhotoUploader.addEventListener('click', () => singleFileInput.click());
+    singleFileInput.addEventListener('change', handleSingleFile);
+
+    function handleSingleFile(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            appState.singlePhoto = e.target.result;
+            singlePhotoPreview.innerHTML = `<img src="${appState.singlePhoto}" alt="Предпросмотр фото">`;
+            startSingleBtn.disabled = false;
+        };
+        reader.readAsDataURL(file);
+    }
+    
+    // --- Логика Поэтапного осмотра ---
+    angleSlots.forEach(slot => {
+        slot.addEventListener('click', () => {
+            appState.currentAngle = slot.dataset.angle;
+            angleSlots.forEach(s => s.classList.remove('active'));
+            slot.classList.add('active');
+            
+            const span = slot.querySelector('span');
+            cameraTitle.textContent = span ? span.textContent : slot.textContent;
+
+            cameraOverlay.innerHTML = document.getElementById(`svg-${appState.currentAngle}`).outerHTML;
+            cameraArea.classList.remove('hidden');
+            startCamera();
+        });
+    });
+
+    // --- Логика Камеры и файлов (для поэтапного осмотра) ---
+    const startCamera = async () => {
+        try {
+            if (appState.stream) {
+                appState.stream.getTracks().forEach(track => track.stop());
+            }
+            const constraints = { video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } } };
+            appState.stream = await navigator.mediaDevices.getUserMedia(constraints);
+            video.srcObject = appState.stream;
+        } catch (err) {
+            console.error("Ошибка доступа к камере: ", err);
+        }
+    };
+
+    captureBtn.addEventListener('click', () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        canvas.getContext('2d').drawImage(video, 0, 0);
+        const imageDataUrl = canvas.toDataURL('image/jpeg', 0.9);
+        processMultiPhoto(imageDataUrl);
+    });
+    
+    fileUpload.addEventListener('change', (event) => {
+        const file = event.target.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = (e) => processMultiPhoto(e.target.result);
+            reader.readAsDataURL(file);
+        }
+        event.target.value = null;
+    });
+
+    const processMultiPhoto = (imageDataUrl) => {
+        if (!appState.currentAngle) return;
+        appState.photos[appState.currentAngle] = imageDataUrl;
+        
+        const slot = document.querySelector(`.angle-slot[data-angle="${appState.currentAngle}"]`);
+        const angleText = slot.querySelector('span')?.textContent || slot.textContent;
+        slot.innerHTML = `<img src="${imageDataUrl}" class="preview" alt="${angleText}"><span style="display:none;">${angleText}</span>`;
+        slot.classList.add('completed');
+        
+        cameraArea.classList.add('hidden');
+        if (appState.stream) {
+            appState.stream.getTracks().forEach(track => track.stop());
+        }
+
+        const allPhotosTaken = Object.values(appState.photos).every(p => p !== null);
+        analyzeBtn.disabled = !allPhotosTaken;
+    };
+    
+    // --- Индикатор наклона ---
+    if (window.DeviceOrientationEvent) {
+        window.addEventListener('deviceorientation', (event) => {
+             if (!event.gamma || cameraArea.classList.contains('hidden')) return; // Check if camera is active
+              const gamma = event.gamma;
+              let tilt = 50 + (gamma / 90) * 50;
+              tilt = Math.max(0, Math.min(100, tilt));
+              tiltMarker.style.left = `${tilt}%`;
+              captureBtn.disabled = Math.abs(gamma) > 5;
+              // Визуальная подсказка о готовности к съемке
+              captureBtn.style.backgroundColor = captureBtn.disabled ? 'var(--primary-color)' : 'var(--success-color)';
+        });
+    }
+
+    // --- Общая логика АНАЛИЗА и РЕЗУЛЬТАТОВ ---
+    analyzeBtn.addEventListener('click', runAnalysis);
+    
+    async function runAnalysis() {
+        showScreen('processing');
+        errorMessage.style.display = 'none';
+        
+        try {
+            const photosToAnalyze = appState.mode === 'multi' ? appState.photos : { single: appState.singlePhoto };
+            const results = await analyzeWithGemini(photosToAnalyze);
+            displayResults(results);
+            showScreen('results');
+        } catch (error) {
+            console.error("Критическая ошибка в процессе анализа:", error);
+            showErrorMessage(`Произошла ошибка: ${error.message}. Пожалуйста, попробуйте снова.`);
+            showScreen('results');
+        }
+    }
+    
+    async function analyzeWithGemini(photos) {
+        const apiKey = "AIzaSyAVbOHkINjsB9HdudvDkqBVDAS5_Jssx9A"; 
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+        const finalResults = {};
+        let totalDamageCounter = 1;
+
+        // Улучшенный и детализированный промпт
+        const prompt = `Ты — ведущий эксперт по оценке повреждений автомобилей для элитной страховой компании. Твоя задача — провести МАКСИМАЛЬНО тщательный и детальный анализ предоставленного изображения. Ты должен обнаружить АБСОЛЮТНО все, даже самые незначительные дефекты.
+
+Твои цели:
+1.  **Идентификация всех повреждений:** Вмятины, глубокие и мелкие царапины (включая "паутинку"), сколы (ОСОБЕННО на стеклах и фарах), трещины, потертости, ржавчина, повреждения лакокрасочного покрытия (ЛКП).
+2.  **Точная локализация:** Укажи конкретную деталь и ее часть.
+3.  **Оценка масштаба:** Определи примерный процент повреждения для КАЖДОГО дефекта относительно всей детали.
+
+Для КАЖДОГО найденного повреждения предоставь информацию в СТРОГОМ формате JSON-объекта. Весь твой ответ должен быть одним JSON-массивом.
+
+Структура JSON-объекта для каждого повреждения:
+1. "type": Тип повреждения. (Примеры: "Вмятина", "Царапина", "Скол на стекле", "Трещина на фаре", "Потертость", "Ржавчина", "Повреждение ЛКП").
+2. "part": Конкретная деталь автомобиля (Примеры: "Передний бампер", "Капот", "Лобовое стекло", "Левая передняя фара", "Правое зеркало заднего вида").
+3. "location": Уточняющее описание местоположения на детали (Примеры: "в центре", "над ручкой двери", "вдоль нижнего края").
+4. "damage_percent": Оцени в процентах, какая часть ДЕТАЛИ повреждена этим дефектом. Укажи только число. Например, если на бампере царапина, занимающая 10% его поверхности, укажи 10. Если скол на лобовом стекле - это может быть 1. Указывай число от 1 до 100.
+5. "bbox": Ограничивающий прямоугольник [x, y, width, height] в процентах от размера изображения.
+
+Твой ответ ДОЛЖЕН БЫТЬ только JSON-массивом. Если повреждений нет, верни пустой массив []. Не добавляй никакого текста, комментариев или объяснений до или после JSON.
+
+Пример ответа:
+[
+  {
+    "type": "Скол на стекле",
+    "part": "Лобовое стекло",
+    "location": "в правом нижнем углу",
+    "damage_percent": 1,
+    "bbox": [75, 80, 5, 5]
+  },
+  {
+    "type": "Вмятина",
+    "part": "Переднее левое крыло",
+    "location": "над колесной аркой",
+    "damage_percent": 15,
+    "bbox": [20, 50, 15, 10]
+  }
+]`;
+
+        for (const [angle, base64Image] of Object.entries(photos)) {
+            if (!base64Image) continue;
+            
+            processingStatus.textContent = `Анализируем...`;
+            if (appState.mode === 'multi') {
+                 const angleText = document.querySelector(`.angle-slot[data-angle=${angle}] span`)?.textContent || angle;
+                 processingStatus.textContent = `Анализируем: ${angleText}...`;
+            }
+
+            const pureBase64 = base64Image.split(',')[1];
+            const payload = {
+                contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: "image/jpeg", data: pureBase64 } }] }],
+                generationConfig: { responseMimeType: "application/json" }
+            };
+            
+            const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+
+            if (!response.ok) {
+                 const errorBody = await response.text();
+                 console.error(`Ошибка API для ${angle}: ${response.status}`, errorBody);
+                 throw new Error(`Сервер вернул ошибку при анализе фото (${angle}).`);
+            }
+            
+            const result = await response.json();
+            
+            if (result.candidates && result.candidates[0].content && result.candidates[0].content.parts[0].text) {
+                const text = result.candidates[0].content.parts[0].text;
+                try {
+                    const damages = JSON.parse(text);
+                    finalResults[angle] = [];
+                    damages.forEach(damage => {
+                        damage.id = totalDamageCounter++;
+                        finalResults[angle].push(damage);
+                    });
+                } catch(e) {
+                     console.error(`Ошибка парсинга JSON для ${angle}:`, e, "Полученный текст:", text);
+                     finalResults[angle] = []; // Считаем, что повреждений нет, если JSON некорректен
+                }
+            } else {
+                 console.warn(`Нет валидных кандидатов в ответе для ${angle}`, result);
+                 finalResults[angle] = [];
+            }
+        }
+        return finalResults;
+    }
+    
+    function displayResults(results) {
+        resultsContainer.innerHTML = '';
+        let totalDamages = 0;
+
+        for (const angle in results) {
+            if ((appState.mode === 'multi' && appState.photos[angle]) || (appState.mode === 'single' && appState.singlePhoto)) {
+                totalDamages += results[angle].length;
+
+                const resultItem = document.createElement('div');
+                resultItem.className = 'result-item';
+
+                const title = document.createElement('h3');
+                const angleText = appState.mode === 'multi' ? (document.querySelector(`.angle-slot[data-angle=${angle}] span`)?.textContent || 'Фото') : 'Результат анализа';
+                title.textContent = `${angleText} (${results[angle].length} повр.)`;
+                
+                const imageContainer = document.createElement('div');
+                imageContainer.className = 'result-image-container';
+                const canvas = document.createElement('canvas');
+                canvas.className = 'result-canvas';
+                imageContainer.appendChild(canvas);
+
+                resultItem.appendChild(title);
+                resultItem.appendChild(imageContainer);
+
+                const damageList = document.createElement('div');
+                if (results[angle].length > 0) {
+                    results[angle].forEach(damage => {
+                        const p = document.createElement('p');
+                        p.className = 'damage-item';
+                        
+                        let damageDetails = `<strong>#${damage.id} <span class="part">${damage.part || 'Деталь не указана'}</span>:</strong> ${damage.type || 'Тип не указан'} - <em>${damage.location || 'Место не указано'}</em>`;
+                        
+                        if (damage.damage_percent) {
+                             damageDetails += ` (Повреждено ~${damage.damage_percent}%)`;
+                        }
+
+                        p.innerHTML = damageDetails;
+                        damageList.appendChild(p);
+                    });
+                } else {
+                    damageList.innerHTML = '<p>Повреждений не найдено.</p>';
+                }
+                resultItem.appendChild(damageList);
+
+                if (appState.mode === 'single' || window.innerWidth < 768) {
+                    resultsContainer.appendChild(resultItem);
+                } else { 
+                    let lastGrid = resultsContainer.querySelector('.results-grid:last-child');
+                    if (!lastGrid || lastGrid.children.length >= 2) {
+                        lastGrid = document.createElement('div');
+                        lastGrid.className = 'results-grid';
+                        resultsContainer.appendChild(lastGrid);
+                    }
+                    lastGrid.appendChild(resultItem);
+                }
+                
+                const imageUrl = appState.mode === 'multi' ? appState.photos[angle] : appState.singlePhoto;
+                drawOnCanvas(canvas, imageUrl, results[angle]);
+            }
+        }
+        
+        if (totalDamages === 0) {
+            resultsSummary.style.display = 'none';
+            resultsContainer.innerHTML = `<div class="card"><p style="color: var(--success-color); font-weight: bold; font-size: 1.2em;">Отлично! В ходе анализа повреждений не было обнаружено.</p></div>`;
+        } else {
+            resultsSummary.textContent = `Анализ завершен. Всего найдено повреждений: ${totalDamages}.`;
+            resultsSummary.style.display = 'block';
+        }
+    }
+
+    function drawOnCanvas(canvas, imageUrl, damages) {
+        const ctx = canvas.getContext('2d');
+        const img = new Image();
+        img.onload = () => {
+            canvas.width = img.width;
+            canvas.height = img.height;
+            canvas.style.width = '100%';
+            canvas.style.height = 'auto';
+
+            ctx.drawImage(img, 0, 0);
+
+            damages.forEach(damage => {
+                if (!damage.bbox || damage.bbox.length !== 4) return;
+                const [x_perc, y_perc, w_perc, h_perc] = damage.bbox;
+                const x = (x_perc / 100) * img.width;
+                const y = (y_perc / 100) * img.height;
+                const w = (w_perc / 100) * img.width;
+                const h = (h_perc / 100) * img.height;
+
+                ctx.strokeStyle = 'red';
+                ctx.lineWidth = Math.max(3, img.width / 200);
+                ctx.strokeRect(x, y, w, h);
+
+                const fontSize = Math.max(20, img.width / 35);
+                ctx.font = `bold ${fontSize}px sans-serif`;
+                const text = damage.id.toString();
+                const textMetrics = ctx.measureText(text);
+                const textWidth = textMetrics.width;
+                const textHeight = fontSize; 
+                
+                const textX = x + w / 2;
+                const textY = y + h / 2;
+                
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+                ctx.fillRect(textX - textWidth / 2 - 8, textY - textHeight / 2 - 4, textWidth + 16, textHeight + 8);
+
+                ctx.fillStyle = 'white';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(text, textX, textY);
+            });
+        };
+        img.src = imageUrl;
+    }
+    
+    function showErrorMessage(message) {
+        errorMessage.textContent = message;
+        errorMessage.style.display = 'block';
+    }
+    
+    function resetState() {
+        appState.currentAngle = null;
+        appState.photos = { front: null, rear: null, left: null, right: null };
+        appState.singlePhoto = null;
+        appState.mode = 'multi';
+        if (appState.stream) {
+            appState.stream.getTracks().forEach(track => track.stop());
+            appState.stream = null;
+        }
+        // Сброс UI
+        angleSlots.forEach(slot => {
+            const span = slot.querySelector('span');
+            const angleText = span ? span.textContent : (slot.dataset.angle.charAt(0).toUpperCase() + slot.dataset.angle.slice(1));
+            slot.innerHTML = `<span>${angleText}</span>`;
+            slot.classList.remove('completed', 'active');
+        });
+        singlePhotoPreview.innerHTML = '';
+        startSingleBtn.disabled = true;
+        analyzeBtn.disabled = true;
+        errorMessage.style.display = 'none';
+        resultsContainer.innerHTML = '';
+        tabButtons.forEach((btn, index) => btn.classList.toggle('active', index === 0));
+        tabContents.forEach((content, index) => content.classList.toggle('active', index === 0));
+    }
+});
+</script>
+</body>
+</html>

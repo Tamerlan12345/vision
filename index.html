@@ -7,8 +7,6 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@latest/dist/coco-ssd.min.js"></script>
     <style>
         /* CSS Стили */
         :root {
@@ -169,21 +167,6 @@
             font-size: 1.5em;
             font-weight: bold;
         }
-        /* NEW: Style for viewpoint error */
-        .angle-slot.error {
-            border-color: var(--error-color);
-            border-style: solid;
-        }
-        .angle-slot.error::after {
-            content: '✖';
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            color: var(--error-color);
-            font-size: 1.5em;
-            font-weight: bold;
-        }
-
         .angle-slot img.preview, #single-photo-preview img {
             width: 100%;
             height: 100%;
@@ -225,22 +208,6 @@
             margin-top: 10px;
             font-weight: 500;
         }
-        
-        /* NEW: Real-time guidance hint styles */
-        #real-time-hint {
-            position: absolute;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background-color: rgba(0, 0, 0, 0.7);
-            color: #fff;
-            padding: 10px 20px;
-            border-radius: 20px;
-            font-size: 0.9em;
-            z-index: 10;
-            display: none; /* Hidden by default */
-        }
-        
         #tilt-indicator {
             display: inline-block;
             width: 100px;
@@ -371,11 +338,13 @@
                     <button class="tab-btn" data-tab="tab-single-photo">Осмотр по 1 фото</button>
                 </div>
 
+                <!-- Вкладка 1: Поэтапный осмотр -->
                 <div id="tab-multi-photo" class="tab-content active">
                     <p>Система проведет вас через 4 шага для комплексной оценки состояния вашего автомобиля. Нажмите "Начать", чтобы продолжить.</p>
                     <button id="start-multi-btn" class="btn">Начать поэтапный осмотр</button>
                 </div>
 
+                <!-- Вкладка 2: Осмотр по 1 фото -->
                 <div id="tab-single-photo" class="tab-content">
                     <p>Загрузите одну фотографию вашего автомобиля, и наш ИИ проведет экспресс-анализ на наличие повреждений.</p>
                     <input type="file" id="single-file-input" accept="image/*" class="hidden">
@@ -408,7 +377,6 @@
                 <div class="camera-container">
                     <video id="video-feed" playsinline autoplay muted></video>
                     <div id="camera-overlay" class="camera-overlay"></div>
-                    <div id="real-time-hint"></div>
                 </div>
                 <div class="camera-controls">
                     <button id="capture-btn" class="btn">Сделать фото</button>
@@ -456,14 +424,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // Глобальное состояние приложения
     const appState = {
         currentAngle: null,
-        photos: { front: null, rear: null, left: null, right: null },
+        photos: {
+            front: null, rear: null, left: null, right: null,
+        },
         singlePhoto: null,
         stream: null,
-        mode: 'multi',
-        // NEW: State for real-time object detection
-        objectDetectionModel: null,
-        isDetecting: false,
-        viewpointErrors: {} // NEW: To store viewpoint validation errors
+        mode: 'multi' // 'multi' или 'single'
     };
 
     // --- DOM Элементы ---
@@ -473,12 +439,15 @@ document.addEventListener('DOMContentLoaded', () => {
         processing: document.getElementById('screen-processing'),
         results: document.getElementById('screen-results'),
     };
+    // Вкладки
     const tabButtons = document.querySelectorAll('.tab-btn');
     const tabContents = document.querySelectorAll('.tab-content');
+    // Кнопки
     const startMultiBtn = document.getElementById('start-multi-btn');
     const startSingleBtn = document.getElementById('start-single-btn');
     const analyzeBtn = document.getElementById('analyze-btn');
     const backToStartBtn = document.getElementById('back-to-start-btn');
+    // Поэтапный осмотр
     const angleSlots = document.querySelectorAll('.angle-slot');
     const cameraArea = document.getElementById('camera-area');
     const cameraTitle = document.getElementById('camera-title');
@@ -487,17 +456,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const captureBtn = document.getElementById('capture-btn');
     const fileUpload = document.getElementById('file-upload');
     const tiltMarker = document.getElementById('tilt-marker');
+    // Осмотр по 1 фото
     const singlePhotoUploader = document.getElementById('single-photo-uploader');
     const singleFileInput = document.getElementById('single-file-input');
     const singlePhotoPreview = document.getElementById('single-photo-preview');
+    // Результаты и статусы
     const resultsContainer = document.getElementById('results-container');
     const errorMessage = document.getElementById('error-message');
     const resultsSummary = document.getElementById('results-summary');
     const processingStatus = document.getElementById('processing-status');
-    const realTimeHint = document.getElementById('real-time-hint'); // NEW
-
-    // --- Инициализация ---
-    initObjectDetection(); // NEW
 
     // --- Управление экранами и вкладками ---
     const showScreen = (screenName) => {
@@ -567,7 +534,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // --- Логика Камеры и файлов ---
+    // --- Логика Камеры и файлов (для поэтапного осмотра) ---
     const startCamera = async () => {
         try {
             if (appState.stream) {
@@ -576,9 +543,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const constraints = { video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } } };
             appState.stream = await navigator.mediaDevices.getUserMedia(constraints);
             video.srcObject = appState.stream;
-            // NEW: Start real-time detection when camera starts
-            appState.isDetecting = true;
-            detectFrame();
         } catch (err) {
             console.error("Ошибка доступа к камере: ", err);
         }
@@ -611,10 +575,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const angleText = slot.querySelector('span')?.textContent || slot.textContent;
         slot.innerHTML = `<img src="${imageDataUrl}" class="preview" alt="${angleText}"><span style="display:none;">${angleText}</span>`;
         slot.classList.add('completed');
-        slot.classList.remove('error'); // NEW: Remove error class on new photo
-        delete appState.viewpointErrors[appState.currentAngle]; // NEW: Clear old error
         
-        stopCamera(); // NEW: refactored camera stop logic
+        cameraArea.classList.add('hidden');
+        if (appState.stream) {
+            appState.stream.getTracks().forEach(track => track.stop());
+        }
 
         const allPhotosTaken = Object.values(appState.photos).every(p => p !== null);
         analyzeBtn.disabled = !allPhotosTaken;
@@ -623,75 +588,17 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Индикатор наклона ---
     if (window.DeviceOrientationEvent) {
         window.addEventListener('deviceorientation', (event) => {
-            if (!event.gamma || !appState.isDetecting) return;
-             const gamma = event.gamma;
-             let tilt = 50 + (gamma / 90) * 50;
-             tilt = Math.max(0, Math.min(100, tilt));
-             tiltMarker.style.left = `${tilt}%`;
-             captureBtn.disabled = Math.abs(gamma) > 5;
-             captureBtn.style.backgroundColor = captureBtn.disabled ? 'var(--primary-color)' : 'var(--success-color)';
+             if (!event.gamma || cameraArea.classList.contains('hidden')) return; // Check if camera is active
+              const gamma = event.gamma;
+              let tilt = 50 + (gamma / 90) * 50;
+              tilt = Math.max(0, Math.min(100, tilt));
+              tiltMarker.style.left = `${tilt}%`;
+              captureBtn.disabled = Math.abs(gamma) > 5;
+              // Визуальная подсказка о готовности к съемке
+              captureBtn.style.backgroundColor = captureBtn.disabled ? 'var(--primary-color)' : 'var(--success-color)';
         });
     }
 
-    // --- NEW: Real-time Object Detection Logic ---
-    async function initObjectDetection() {
-        console.log("Loading COCO-SSD model...");
-        try {
-            appState.objectDetectionModel = await cocoSsd.load();
-            console.log("Model loaded.");
-        } catch(e) {
-            console.error("Failed to load model", e);
-        }
-    }
-
-    async function detectFrame() {
-        if (!appState.isDetecting || !appState.objectDetectionModel) {
-            realTimeHint.style.display = 'none';
-            return;
-        }
-
-        const predictions = await appState.objectDetectionModel.detect(video);
-        const carPrediction = predictions.find(p => p.class === 'car');
-
-        if (carPrediction) {
-            const [x, y, width, height] = carPrediction.bbox;
-            const videoWidth = video.videoWidth;
-            const carWidthRatio = width / videoWidth;
-            const carCenterX = x + width / 2;
-            const videoCenterX = videoWidth / 2;
-            const centerOffsetRatio = Math.abs(carCenterX - videoCenterX) / videoWidth;
-
-            let hintText = "";
-            if (carWidthRatio > 0.9) {
-                hintText = "Подвиньтесь дальше";
-            } else if (carWidthRatio < 0.6) {
-                hintText = "Подойдите ближе";
-            } else if (centerOffsetRatio > 0.1) {
-                hintText = "Отцентрируйте автомобиль";
-            } else {
-                hintText = "Отличный ракурс!";
-            }
-            realTimeHint.textContent = hintText;
-            realTimeHint.style.display = 'block';
-
-        } else {
-            realTimeHint.textContent = "Наведите на автомобиль";
-            realTimeHint.style.display = 'block';
-        }
-        
-        requestAnimationFrame(detectFrame); // Loop
-    }
-
-    function stopCamera() {
-        cameraArea.classList.add('hidden');
-        appState.isDetecting = false; // Stop detection loop
-        realTimeHint.style.display = 'none'; // Hide hint
-        if (appState.stream) {
-            appState.stream.getTracks().forEach(track => track.stop());
-            appState.stream = null;
-        }
-    }
-    
     // --- Общая логика АНАЛИЗА и РЕЗУЛЬТАТОВ ---
     analyzeBtn.addEventListener('click', runAnalysis);
     
@@ -712,49 +619,57 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     async function analyzeWithGemini(photos) {
-        const apiKey = "AIzaSyAVbOHkINjsB9HdudvDkqBVDAS5_Jssx9A";  
+        const apiKey = "AIzaSyC9uT3mmCRqCk48uQiryQ4Pf7gOgIKOP_w"; 
         const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
         const finalResults = {};
         let totalDamageCounter = 1;
 
+        // Улучшенный и детализированный промпт
+        const prompt = `Ты — ведущий эксперт по оценке повреждений автомобилей для элитной страховой компании. Твоя задача — провести МАКСИМАЛЬНО тщательный и детальный анализ предоставленного изображения. Ты должен обнаружить АБСОЛЮТНО все, даже самые незначительные дефекты.
+
+Твои цели:
+1.  **Идентификация всех повреждений:** Вмятины, глубокие и мелкие царапины (включая "паутинку"), сколы (ОСОБЕННО на стеклах и фарах), трещины, потертости, ржавчина, повреждения лакокрасочного покрытия (ЛКП).
+2.  **Точная локализация:** Укажи конкретную деталь и ее часть.
+3.  **Оценка масштаба:** Определи примерный процент повреждения для КАЖДОГО дефекта относительно всей детали.
+
+Для КАЖДОГО найденного повреждения предоставь информацию в СТРОГОМ формате JSON-объекта. Весь твой ответ должен быть одним JSON-массивом.
+
+Структура JSON-объекта для каждого повреждения:
+1. "type": Тип повреждения. (Примеры: "Вмятина", "Царапина", "Скол на стекле", "Трещина на фаре", "Потертость", "Ржавчина", "Повреждение ЛКП").
+2. "part": Конкретная деталь автомобиля (Примеры: "Передний бампер", "Капот", "Лобовое стекло", "Левая передняя фара", "Правое зеркало заднего вида").
+3. "location": Уточняющее описание местоположения на детали (Примеры: "в центре", "над ручкой двери", "вдоль нижнего края").
+4. "damage_percent": Оцени в процентах, какая часть ДЕТАЛИ повреждена этим дефектом. Укажи только число. Например, если на бампере царапина, занимающая 10% его поверхности, укажи 10. Если скол на лобовом стекле - это может быть 1. Указывай число от 1 до 100.
+5. "bbox": Ограничивающий прямоугольник [x, y, width, height] в процентах от размера изображения.
+
+Твой ответ ДОЛЖЕН БЫТЬ только JSON-массивом. Если повреждений нет, верни пустой массив []. Не добавляй никакого текста, комментариев или объяснений до или после JSON.
+
+Пример ответа:
+[
+  {
+    "type": "Скол на стекле",
+    "part": "Лобовое стекло",
+    "location": "в правом нижнем углу",
+    "damage_percent": 1,
+    "bbox": [75, 80, 5, 5]
+  },
+  {
+    "type": "Вмятина",
+    "part": "Переднее левое крыло",
+    "location": "над колесной аркой",
+    "damage_percent": 15,
+    "bbox": [20, 50, 15, 10]
+  }
+]`;
+
         for (const [angle, base64Image] of Object.entries(photos)) {
             if (!base64Image) continue;
-
-            const angleText = appState.mode === 'multi' ? (document.querySelector(`.angle-slot[data-angle=${angle}] span`)?.textContent || angle) : 'Фото';
-            processingStatus.textContent = `Анализируем: ${angleText}...`;
-
-            // NEW: Updated prompt for viewpoint check and segmentation
-            const prompt = `Ты — эксперт по оценке повреждений автомобилей. Твоя задача — провести анализ изображения.
-
-Твой ответ ДОЛЖЕН БЫТЬ только одним JSON-объектом. Не добавляй никакого текста или markdown до или после JSON.
-
-Структура JSON-объекта:
-1.  "view_analysis": Объект для проверки ракурса.
-    * "is_correct_view": boolean. True, если изображение соответствует запрошенному ракурсу "${angleText}". False в противном случае.
-    * "reason": string. Краткое объяснение, если ракурс неверный (например, "На фото задняя часть, а не передняя").
-2.  "damages": JSON-массив. Если ракурс неверный, этот массив должен быть пустым. Если ракурс верный, найди все повреждения. Для КАЖДОГО повреждения создай объект:
-    * "type": Тип повреждения ("Вмятина", "Царапина", "Скол", "Трещина", "Ржавчина").
-    * "part": Конкретная деталь автомобиля ("Передний бампер", "Капот", "Лобовое стекло").
-    * "polygon": Массив точек [{x, y}, {x, y}, ...], описывающий точный контур повреждения в процентах от размера изображения. Это ДОЛЖЕН быть полигон, а не прямоугольник.
-
-Пример ответа для верного ракурса:
-{
-  "view_analysis": { "is_correct_view": true, "reason": "Ракурс соответствует запросу." },
-  "damages": [
-    {
-      "type": "Царапина",
-      "part": "Переднее левое крыло",
-      "polygon": [{"x": 20, "y": 50}, {"x": 35, "y": 52}, {"x": 34, "y": 55}, {"x": 19, "y": 53}]
-    }
-  ]
-}
-
-Пример ответа для неверного ракурса:
-{
-  "view_analysis": { "is_correct_view": false, "reason": "На фото боковая часть, а не передняя." },
-  "damages": []
-}`;
             
+            processingStatus.textContent = `Анализируем...`;
+            if (appState.mode === 'multi') {
+                 const angleText = document.querySelector(`.angle-slot[data-angle=${angle}] span`)?.textContent || angle;
+                 processingStatus.textContent = `Анализируем: ${angleText}...`;
+            }
+
             const pureBase64 = base64Image.split(',')[1];
             const payload = {
                 contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: "image/jpeg", data: pureBase64 } }] }],
@@ -769,29 +684,23 @@ document.addEventListener('DOMContentLoaded', () => {
                  throw new Error(`Сервер вернул ошибку при анализе фото (${angle}).`);
             }
             
-            const resultText = await response.text();
+            const result = await response.json();
             
-            try {
-                const resultData = JSON.parse(resultText);
-                
-                // NEW: Viewpoint check logic
-                if (resultData.view_analysis && !resultData.view_analysis.is_correct_view) {
-                    appState.viewpointErrors[angle] = resultData.view_analysis.reason || "Неверный ракурс.";
-                    finalResults[angle] = []; // No damages to process
-                    continue; // Move to the next photo
-                }
-
-                if (resultData.damages) {
+            if (result.candidates && result.candidates[0].content && result.candidates[0].content.parts[0].text) {
+                const text = result.candidates[0].content.parts[0].text;
+                try {
+                    const damages = JSON.parse(text);
                     finalResults[angle] = [];
-                    resultData.damages.forEach(damage => {
+                    damages.forEach(damage => {
                         damage.id = totalDamageCounter++;
                         finalResults[angle].push(damage);
                     });
-                } else {
-                    finalResults[angle] = [];
+                } catch(e) {
+                     console.error(`Ошибка парсинга JSON для ${angle}:`, e, "Полученный текст:", text);
+                     finalResults[angle] = []; // Считаем, что повреждений нет, если JSON некорректен
                 }
-            } catch(e) {
-                 console.error(`Ошибка парсинга JSON для ${angle}:`, e, "Полученный текст:", resultText);
+            } else {
+                 console.warn(`Нет валидных кандидатов в ответе для ${angle}`, result);
                  finalResults[angle] = [];
             }
         }
@@ -801,18 +710,6 @@ document.addEventListener('DOMContentLoaded', () => {
     function displayResults(results) {
         resultsContainer.innerHTML = '';
         let totalDamages = 0;
-        let hasViewpointErrors = Object.keys(appState.viewpointErrors).length > 0;
-
-        // NEW: Display a general error message for viewpoint issues
-        if (hasViewpointErrors) {
-            const errorReasons = Object.entries(appState.viewpointErrors).map(([angle, reason]) => {
-                const angleText = document.querySelector(`.angle-slot[data-angle=${angle}] span`)?.textContent || angle;
-                const slot = document.querySelector(`.angle-slot[data-angle=${angle}]`);
-                if(slot) slot.classList.add('error');
-                return `<strong>${angleText}:</strong> ${reason}`;
-            }).join('<br>');
-            showErrorMessage(`Обнаружены ошибки в ракурсах. Пожалуйста, вернитесь назад и переснимите отмеченные фото.<br>${errorReasons}`);
-        }
 
         for (const angle in results) {
             if ((appState.mode === 'multi' && appState.photos[angle]) || (appState.mode === 'single' && appState.singlePhoto)) {
@@ -839,15 +736,21 @@ document.addEventListener('DOMContentLoaded', () => {
                     results[angle].forEach(damage => {
                         const p = document.createElement('p');
                         p.className = 'damage-item';
-                        p.innerHTML = `<strong>#${damage.id} <span class="part">${damage.part || 'Деталь не указана'}</span>:</strong> ${damage.type || 'Тип не указан'}`;
+                        
+                        let damageDetails = `<strong>#${damage.id} <span class="part">${damage.part || 'Деталь не указана'}</span>:</strong> ${damage.type || 'Тип не указан'} - <em>${damage.location || 'Место не указано'}</em>`;
+                        
+                        if (damage.damage_percent) {
+                             damageDetails += ` (Повреждено ~${damage.damage_percent}%)`;
+                        }
+
+                        p.innerHTML = damageDetails;
                         damageList.appendChild(p);
                     });
-                } else if (!appState.viewpointErrors[angle]) { // Only show "no damages" if there wasn't a viewpoint error
+                } else {
                     damageList.innerHTML = '<p>Повреждений не найдено.</p>';
                 }
                 resultItem.appendChild(damageList);
 
-                // Logic to append to a grid layout
                 if (appState.mode === 'single' || window.innerWidth < 768) {
                     resultsContainer.appendChild(resultItem);
                 } else { 
@@ -865,11 +768,11 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
         
-        if (totalDamages === 0 && !hasViewpointErrors) {
+        if (totalDamages === 0) {
             resultsSummary.style.display = 'none';
             resultsContainer.innerHTML = `<div class="card"><p style="color: var(--success-color); font-weight: bold; font-size: 1.2em;">Отлично! В ходе анализа повреждений не было обнаружено.</p></div>`;
         } else {
-            resultsSummary.textContent = `Анализ завершен. Всего найдено подтвержденных повреждений: ${totalDamages}.`;
+            resultsSummary.textContent = `Анализ завершен. Всего найдено повреждений: ${totalDamages}.`;
             resultsSummary.style.display = 'block';
         }
     }
@@ -882,53 +785,45 @@ document.addEventListener('DOMContentLoaded', () => {
             canvas.height = img.height;
             canvas.style.width = '100%';
             canvas.style.height = 'auto';
+
             ctx.drawImage(img, 0, 0);
 
             damages.forEach(damage => {
-                // NEW: Draw polygon instead of bbox
-                if (!damage.polygon || damage.polygon.length < 3) return;
-
-                const points = damage.polygon.map(p => ({
-                    x: (p.x / 100) * img.width,
-                    y: (p.y / 100) * img.height
-                }));
+                if (!damage.bbox || damage.bbox.length !== 4) return;
+                const [x_perc, y_perc, w_perc, h_perc] = damage.bbox;
+                const x = (x_perc / 100) * img.width;
+                const y = (y_perc / 100) * img.height;
+                const w = (w_perc / 100) * img.width;
+                const h = (h_perc / 100) * img.height;
 
                 ctx.strokeStyle = 'red';
-                ctx.lineWidth = Math.max(3, img.width / 250);
-                ctx.fillStyle = 'rgba(255, 0, 0, 0.2)';
+                ctx.lineWidth = Math.max(3, img.width / 200);
+                ctx.strokeRect(x, y, w, h);
 
-                ctx.beginPath();
-                ctx.moveTo(points[0].x, points[0].y);
-                for (let i = 1; i < points.length; i++) {
-                    ctx.lineTo(points[i].x, points[i].y);
-                }
-                ctx.closePath();
-                ctx.stroke();
-                ctx.fill();
-
-                // Find center of polygon for text
-                const centerX = points.reduce((sum, p) => sum + p.x, 0) / points.length;
-                const centerY = points.reduce((sum, p) => sum + p.y, 0) / points.length;
-
-                const fontSize = Math.max(20, img.width / 40);
+                const fontSize = Math.max(20, img.width / 35);
                 ctx.font = `bold ${fontSize}px sans-serif`;
                 const text = damage.id.toString();
                 const textMetrics = ctx.measureText(text);
+                const textWidth = textMetrics.width;
+                const textHeight = fontSize; 
                 
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-                ctx.fillRect(centerX - textMetrics.width / 2 - 5, centerY - fontSize / 2 - 5, textMetrics.width + 10, fontSize + 10);
+                const textX = x + w / 2;
+                const textY = y + h / 2;
                 
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+                ctx.fillRect(textX - textWidth / 2 - 8, textY - textHeight / 2 - 4, textWidth + 16, textHeight + 8);
+
                 ctx.fillStyle = 'white';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                ctx.fillText(text, centerX, centerY);
+                ctx.fillText(text, textX, textY);
             });
         };
         img.src = imageUrl;
     }
     
     function showErrorMessage(message) {
-        errorMessage.innerHTML = message; // Use innerHTML to render <br> and <strong>
+        errorMessage.textContent = message;
         errorMessage.style.display = 'block';
     }
     
@@ -937,13 +832,16 @@ document.addEventListener('DOMContentLoaded', () => {
         appState.photos = { front: null, rear: null, left: null, right: null };
         appState.singlePhoto = null;
         appState.mode = 'multi';
-        appState.viewpointErrors = {}; // NEW
-        stopCamera();
-
+        if (appState.stream) {
+            appState.stream.getTracks().forEach(track => track.stop());
+            appState.stream = null;
+        }
+        // Сброс UI
         angleSlots.forEach(slot => {
-            const angleText = slot.dataset.angle.charAt(0).toUpperCase() + slot.dataset.angle.slice(1);
+            const span = slot.querySelector('span');
+            const angleText = span ? span.textContent : (slot.dataset.angle.charAt(0).toUpperCase() + slot.dataset.angle.slice(1));
             slot.innerHTML = `<span>${angleText}</span>`;
-            slot.classList.remove('completed', 'active', 'error');
+            slot.classList.remove('completed', 'active');
         });
         singlePhotoPreview.innerHTML = '';
         startSingleBtn.disabled = true;
@@ -957,3 +855,4 @@ document.addEventListener('DOMContentLoaded', () => {
 </script>
 </body>
 </html>
+

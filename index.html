@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<<!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
@@ -606,7 +606,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function analyzeWithGemini(photos) {
         // ВАЖНО: Замените "YOUR_API_KEY" на ваш реальный ключ API
         const apiKey = "AIzaSyC9uT3mmCRqCk48uQiryQ4Pf7gOgIKOP_w";
-        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
         const finalResults = {};
         let totalDamageCounter = 1;
 
@@ -822,7 +822,7 @@ document.addEventListener('DOMContentLoaded', () => {
         appState.singlePhoto = null;
         appState.mode = 'multi';
         if (appState.stream) {
-            appState.stream.getTracks().forEach(track => track.stop());
+            appState.stream.getTracks().forEach( => track.stop());
             appState.stream = null;
         }
         angleSlots.forEach(slot => {

@@ -7,6 +7,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- TensorFlow.js -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@latest"></script>
     <style>
         /* CSS Стили */
         :root {
@@ -61,7 +64,7 @@
 
         .screen { display: none; }
         .screen.active { display: block; }
-        
+
         .card {
             background-color: #fff;
             border-radius: 12px;
@@ -69,7 +72,7 @@
             box-shadow: 0 4px 12px rgba(0,0,0,0.08);
             text-align: center;
         }
-        
+
         h1, h2 { color: var(--primary-color); }
         p { line-height: 1.6; }
 
@@ -102,7 +105,7 @@
         .btn-secondary:hover {
             background-color: #5a6268;
         }
-        
+
         /* Система вкладок */
         .tab-nav {
             display: flex;
@@ -173,7 +176,7 @@
             object-fit: cover;
             border-radius: 6px;
         }
-        
+
         #camera-area { margin-top: 20px; }
         .camera-container {
             position: relative;
@@ -202,7 +205,7 @@
             stroke-width: 2px;
             fill: none;
         }
-        
+
         .guidance {
             text-align: center;
             margin-top: 10px;
@@ -271,7 +274,7 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
-        
+
         /* Экран результатов */
         .results-grid {
             display: grid;
@@ -296,15 +299,16 @@
             padding: 10px;
             border-radius: 6px;
             margin-bottom: 10px;
+            text-align: left;
         }
         .damage-item:nth-child(odd) { background-color: var(--secondary-color); }
         .damage-item .part {
             font-weight: bold;
             color: var(--primary-color);
         }
-        
+
         .hidden { display: none; }
-        
+
         /* Сообщение об ошибке */
         #error-message {
             display: none;
@@ -358,7 +362,7 @@
         <section id="screen-inspection" class="screen">
             <h2>Шаг 1: Сделайте или загрузите 4 фотографии</h2>
             <p>Выберите ракурс, наведите камеру согласно подсказке и сделайте фото. Убедитесь, что автомобиль полностью помещается в кадр.</p>
-            
+
             <div class="inspection-grid">
                 <div class="angle-slot" data-angle="front"><span>Вид спереди</span></div>
                 <div class="angle-slot" data-angle="rear"><span>Вид сзади</span></div>
@@ -371,6 +375,7 @@
                 <div class="guidance">
                     Держите телефон ровно:
                     <div id="tilt-indicator"><div id="tilt-marker"></div></div>
+                    <div id="realtime-feedback" style="min-height: 20px; color: var(--error-color); font-weight: bold;"></div>
                 </div>
                 <div class="camera-container">
                     <video id="video-feed" playsinline autoplay muted></video>
@@ -427,6 +432,9 @@ document.addEventListener('DOMContentLoaded', () => {
         },
         singlePhoto: null,
         stream: null,
+        model: null,
+        isDetecting: false,
+        isFramingGood: false,
         mode: 'multi' // 'multi' или 'single'
     };
 
@@ -437,15 +445,12 @@ document.addEventListener('DOMContentLoaded', () => {
         processing: document.getElementById('screen-processing'),
         results: document.getElementById('screen-results'),
     };
-    // Вкладки
     const tabButtons = document.querySelectorAll('.tab-btn');
     const tabContents = document.querySelectorAll('.tab-content');
-    // Кнопки
     const startMultiBtn = document.getElementById('start-multi-btn');
     const startSingleBtn = document.getElementById('start-single-btn');
     const analyzeBtn = document.getElementById('analyze-btn');
     const backToStartBtn = document.getElementById('back-to-start-btn');
-    // Поэтапный осмотр
     const angleSlots = document.querySelectorAll('.angle-slot');
     const cameraArea = document.getElementById('camera-area');
     const cameraTitle = document.getElementById('camera-title');
@@ -454,15 +459,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const captureBtn = document.getElementById('capture-btn');
     const fileUpload = document.getElementById('file-upload');
     const tiltMarker = document.getElementById('tilt-marker');
-    // Осмотр по 1 фото
     const singlePhotoUploader = document.getElementById('single-photo-uploader');
     const singleFileInput = document.getElementById('single-file-input');
     const singlePhotoPreview = document.getElementById('single-photo-preview');
-    // Результаты и статусы
     const resultsContainer = document.getElementById('results-container');
     const errorMessage = document.getElementById('error-message');
     const resultsSummary = document.getElementById('results-summary');
     const processingStatus = document.getElementById('processing-status');
+    const realtimeFeedback = document.getElementById('realtime-feedback');
 
     // --- Управление экранами и вкладками ---
     const showScreen = (screenName) => {
@@ -474,20 +478,19 @@ document.addEventListener('DOMContentLoaded', () => {
         button.addEventListener('click', () => {
             tabButtons.forEach(btn => btn.classList.remove('active'));
             button.classList.add('active');
-            
             const tabId = button.dataset.tab;
             tabContents.forEach(content => {
                 content.classList.toggle('active', content.id === tabId);
             });
         });
     });
-    
+
     // --- Навигация и запуск сценариев ---
     startMultiBtn.addEventListener('click', () => {
         appState.mode = 'multi';
         showScreen('inspection');
     });
-    
+
     startSingleBtn.addEventListener('click', () => {
         if (!appState.singlePhoto) return;
         appState.mode = 'single';
@@ -506,7 +509,6 @@ document.addEventListener('DOMContentLoaded', () => {
     function handleSingleFile(event) {
         const file = event.target.files[0];
         if (!file) return;
-
         const reader = new FileReader();
         reader.onload = (e) => {
             appState.singlePhoto = e.target.result;
@@ -515,25 +517,39 @@ document.addEventListener('DOMContentLoaded', () => {
         };
         reader.readAsDataURL(file);
     }
-    
+
     // --- Логика Поэтапного осмотра ---
     angleSlots.forEach(slot => {
         slot.addEventListener('click', () => {
             appState.currentAngle = slot.dataset.angle;
             angleSlots.forEach(s => s.classList.remove('active'));
             slot.classList.add('active');
-            
             const span = slot.querySelector('span');
             cameraTitle.textContent = span ? span.textContent : slot.textContent;
-
             cameraOverlay.innerHTML = document.getElementById(`svg-${appState.currentAngle}`).outerHTML;
             cameraArea.classList.remove('hidden');
             startCamera();
         });
     });
 
-    // --- Логика Камеры и файлов (для поэтапного осмотра) ---
+    // --- Логика Камеры и файлов ---
+    const loadModel = async () => {
+        if (appState.model) return;
+        try {
+            realtimeFeedback.textContent = 'Загрузка модели машинного обучения...';
+            console.log('Loading COCO-SSD model...');
+            appState.model = await cocoSsd.load();
+            console.log('Model loaded.');
+            realtimeFeedback.textContent = 'Наведите камеру на автомобиль.';
+        } catch (err) {
+            console.error("Failed to load model", err);
+            showErrorMessage("Не удалось загрузить модель для анализа в реальном времени.");
+            realtimeFeedback.textContent = 'Ошибка загрузки модели.';
+        }
+    };
+
     const startCamera = async () => {
+        await loadModel();
         try {
             if (appState.stream) {
                 appState.stream.getTracks().forEach(track => track.stop());
@@ -541,6 +557,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const constraints = { video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } } };
             appState.stream = await navigator.mediaDevices.getUserMedia(constraints);
             video.srcObject = appState.stream;
+            video.addEventListener('play', () => {
+                appState.isDetecting = true;
+                runRealtimeDetection();
+            });
         } catch (err) {
             console.error("Ошибка доступа к камере: ", err);
         }
@@ -554,7 +574,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const imageDataUrl = canvas.toDataURL('image/jpeg', 0.9);
         processMultiPhoto(imageDataUrl);
     });
-    
+
     fileUpload.addEventListener('change', (event) => {
         const file = event.target.files[0];
         if (file) {
@@ -566,44 +586,110 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     const processMultiPhoto = (imageDataUrl) => {
+        appState.isDetecting = false;
         if (!appState.currentAngle) return;
         appState.photos[appState.currentAngle] = imageDataUrl;
-        
         const slot = document.querySelector(`.angle-slot[data-angle="${appState.currentAngle}"]`);
         const angleText = slot.querySelector('span')?.textContent || slot.textContent;
         slot.innerHTML = `<img src="${imageDataUrl}" class="preview" alt="${angleText}"><span style="display:none;">${angleText}</span>`;
         slot.classList.add('completed');
-        
         cameraArea.classList.add('hidden');
         if (appState.stream) {
             appState.stream.getTracks().forEach(track => track.stop());
         }
-
         const allPhotosTaken = Object.values(appState.photos).every(p => p !== null);
         analyzeBtn.disabled = !allPhotosTaken;
     };
-    
+
+    const runRealtimeDetection = async () => {
+        if (!appState.isDetecting || !appState.model || !video.srcObject) {
+            requestAnimationFrame(runRealtimeDetection);
+            return;
+        }
+
+        if (video.readyState >= 2) { // Check if video has enough data to play
+            try {
+                console.log("Calling model.detect()...");
+                const predictions = await appState.model.detect(video);
+                console.log("Predictions received:", predictions);
+                handleDetections(predictions);
+            } catch (err) {
+                console.error("Error in model.detect():", err);
+            }
+        }
+
+        requestAnimationFrame(runRealtimeDetection);
+    };
+
+    function handleDetections(predictions) {
+        const car = predictions.find(p => p.class === 'car' && p.score > 0.6);
+
+        if (!car) {
+            realtimeFeedback.textContent = 'Автомобиль не найден';
+            appState.isFramingGood = false;
+            return;
+        }
+
+        const [x, y, width, height] = car.bbox;
+        const videoWidth = video.videoWidth;
+        const videoHeight = video.videoHeight;
+
+        const areaRatio = (width * height) / (videoWidth * videoHeight);
+        const MIN_AREA = 0.3;
+        const MAX_AREA = 0.9;
+
+        if (areaRatio < MIN_AREA) {
+            realtimeFeedback.textContent = 'Подвиньтесь ближе';
+            appState.isFramingGood = false;
+            return;
+        }
+
+        if (areaRatio > MAX_AREA) {
+            realtimeFeedback.textContent = 'Подвиньтесь дальше';
+            appState.isFramingGood = false;
+            return;
+        }
+        
+        const centerX = x + width / 2;
+        const centerThreshold = videoWidth * 0.15;
+        if (Math.abs(centerX - videoWidth / 2) > centerThreshold) {
+            realtimeFeedback.textContent = 'Отцентруйте автомобиль';
+            appState.isFramingGood = false;
+            return;
+        }
+
+        // All checks passed for now. Clarity check can be added here.
+        realtimeFeedback.textContent = 'Отлично! Готово к съемке';
+        appState.isFramingGood = true;
+    }
+
     // --- Индикатор наклона ---
     if (window.DeviceOrientationEvent) {
         window.addEventListener('deviceorientation', (event) => {
-             if (!event.gamma || cameraArea.classList.contains('hidden')) return; // Check if camera is active
-              const gamma = event.gamma;
-              let tilt = 50 + (gamma / 90) * 50;
-              tilt = Math.max(0, Math.min(100, tilt));
-              tiltMarker.style.left = `${tilt}%`;
-              captureBtn.disabled = Math.abs(gamma) > 5;
-              // Визуальная подсказка о готовности к съемке
-              captureBtn.style.backgroundColor = captureBtn.disabled ? 'var(--primary-color)' : 'var(--success-color)';
+            if (!event.gamma || cameraArea.classList.contains('hidden')) return;
+            const gamma = event.gamma;
+            let tilt = 50 + (gamma / 90) * 50;
+            tilt = Math.max(0, Math.min(100, tilt));
+            tiltMarker.style.left = `${tilt}%`;
+            
+            const isTiltOk = Math.abs(gamma) <= 5;
+            
+            if (appState.isFramingGood && isTiltOk) {
+                captureBtn.disabled = false;
+                captureBtn.style.backgroundColor = 'var(--success-color)';
+            } else {
+                captureBtn.disabled = true;
+                captureBtn.style.backgroundColor = 'var(--primary-color)';
+            }
         });
     }
 
-    // --- Общая логика АНАЛИЗА и РЕЗУЛЬТАТОВ ---
+    // --- Логика АНАЛИЗА ---
     analyzeBtn.addEventListener('click', runAnalysis);
-    
+
     async function runAnalysis() {
         showScreen('processing');
         errorMessage.style.display = 'none';
-        
         try {
             const photosToAnalyze = appState.mode === 'multi' ? appState.photos : { single: appState.singlePhoto };
             const results = await analyzeWithGemini(photosToAnalyze);
@@ -615,89 +701,90 @@ document.addEventListener('DOMContentLoaded', () => {
             showScreen('results');
         }
     }
-    
+
     async function analyzeWithGemini(photos) {
         // ВАЖНО: Замените "YOUR_API_KEY" на ваш реальный ключ API
-        const apiKey = "AIzaSyC9uT3mmCRqCk48uQiryQ4Pf7gOgIKOP_w"; 
+        const apiKey = "AIzaSyC9uT3mmCRqCk48uQiryQ4Pf7gOgIKOP_w";
         const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
         const finalResults = {};
         let totalDamageCounter = 1;
 
-        const prompt = `Ты — ведущий эксперт по оценке повреждений автомобилей для элитной страховой компании. Твоя задача — провести МАКСсимально тщательный и детальный анализ предоставленного изображения. Ты должен обнаружить АБСОЛЮТНО все, даже самые незначительные дефекты.
+        const prompt = `Ты — ведущий мировой эксперт по компьютерному зрению и оценке повреждений автомобилей. Твоя задача — провести анализ изображения и выполнить **сегментацию** каждого дефекта, то есть очертить его точный контур.
 
 **Твой мыслительный процесс (Chain of Thought):**
-1.  Сначала внимательно изучи всё изображение целиком. Определи его качество (четкость, освещение, наличие бликов).
-2.  Мысленно раздели автомобиль на основные части (капот, бампер, двери, стекла и т.д.).
-3.  Последовательно анализируй каждую часть. Отличай блики света и отражения от реальных дефектов (царапин, вмятин). Мысленно "приближай" участки, чтобы рассмотреть детали.
-4.  Для каждого найденного дефекта создай **максимально плотную** ограничивающую рамку (bbox), которая обводит только сам дефект, без лишних полей.
-5.  Для каждого дефекта оцени свою уверенность в его наличии и правильности классификации по шкале от 0 до 100. Если есть сомнения (из-за качества фото, блика и т.д.), укажи это в примечаниях.
-6.  Только после этого полного анализа сформируй итоговый JSON-массив.
+1.  Внимательно изучи всё изображение, оценивая качество (четкость, свет, блики).
+2.  Последовательно анализируй каждую деталь автомобиля.
+3.  Для каждого реального дефекта (царапина, вмятина, скол) мысленно обведи его **точный контур**, игнорируя фон и неповрежденные области.
+4.  Преобразуй этот контур в последовательность точек (полигон). Точек должно быть достаточно для точного описания формы, но без избыточности. Для длинной царапины хватит нескольких точек, для сложной вмятины — больше.
+5.  Сформируй итоговый JSON-массив, содержащий эти полигоны.
 
 Твои цели:
-1.  **Идентификация всех повреждений:** Вмятины, глубокие и мелкие царапины (включая "паутинку"), сколы, трещины, потертости, ржавчина, повреждения ЛКП.
-2.  **Точная локализация:** Укажи конкретную деталь и ее часть.
-3.  **Оценка масштаба:** Определи примерный процент повреждения для КАЖДОГО дефекта относительно всей детали.
-4.  **🎯 Создание плотного BBOX:** Ограничивающий прямоугольник [x, y, width, height] должен максимально точно обводить контур повреждения.
-5.  **🤔 Оценка уверенности:** Если качество фото низкое, есть блики или другие помехи, снижай процент уверенности и добавляй пояснение.
+1.  **Идентификация всех повреждений:** Вмятины, царапины, сколы, трещины и т.д.
+2.  **🎯 Создание точного контура (Полигона):** Вместо прямоугольника, верни массив точек \`{x, y}\`, который точно очерчивает границы повреждения.
+3.  **Критическая оценка уверенности:** Если качество фото мешает точно очертить контур, снижай уверенность и указывай причину.
 
 Структура JSON-объекта для каждого повреждения:
-1. "type": Тип повреждения (Примеры: "Вмятина", "Царапина", "Скол на стекле").
-2. "part": Конкретная деталь автомобиля (Примеры: "Передний бампер", "Капот").
-3. "location": Уточняющее описание местоположения (Примеры: "в центре", "над ручкой двери").
-4. "damage_percent": Оценка в процентах, какая часть ДЕТАЛИ повреждена. Только число.
-5. "bbox": Ограничивающий прямоугольник [x, y, width, height] в процентах от размера изображения.
-6. "confidence": Твоя уверенность в том, что это реальное повреждение, от 0 до 100 (число). 100 - полная уверенность.
-7. "notes": Краткое примечание, если уверенность < 90 (Примеры: "Возможно, блик", "Изображение размыто в этой области", "Низкое освещение").
+1. "type": Тип повреждения.
+2. "part": Деталь автомобиля.
+3. "location": Уточняющее описание местоположения.
+4. "damage_percent": Оценка в процентах, какая часть ДЕТАЛИ повреждена.
+5. "segmentation_polygon": Массив точек, описывающих контур повреждения. Каждая точка - это объект {"x": <число>, "y": <число>} в процентах от размера изображения.
+6. "confidence": Твоя уверенность от 0 до 100.
+7. "notes": Примечания, если уверенность низкая.
 
-Твой ответ ДОЛЖЕН БЫТЬ только JSON-массивом. Если повреждений нет, верни пустой массив []. Не добавляй никакого текста до или после JSON.
+Твой ответ ДОЛЖЕН БЫТЬ только JSON-массивом. Если повреждений нет, верни пустой массив [].
 
 Пример ответа:
+\`\`\`json
 [
   {
-    "type": "Царапина",
-    "part": "Левая передняя дверь",
-    "location": "под ручкой",
-    "damage_percent": 5,
-    "bbox": [45, 55, 15, 2],
-    "confidence": 100,
+    "type": "Вмятина",
+    "part": "Переднее левое крыло",
+    "location": "над колесной аркой",
+    "damage_percent": 15,
+    "segmentation_polygon": [
+      {"x": 20, "y": 50},
+      {"x": 35, "y": 52},
+      {"x": 33, "y": 60},
+      {"x": 22, "y": 58}
+    ],
+    "confidence": 95,
     "notes": ""
   },
   {
-    "type": "Вмятина",
-    "part": "Капот",
-    "location": "справа от центра",
-    "damage_percent": 10,
-    "bbox": [60, 25, 8, 12],
-    "confidence": 75,
-    "notes": "Возможно, это искажение из-за сильного отражения."
+    "type": "Царапина",
+    "part": "Правая задняя дверь",
+    "location": "по центру",
+    "damage_percent": 8,
+    "segmentation_polygon": [
+      {"x": 70, "y": 45.1},
+      {"x": 85, "y": 44.8},
+      {"x": 85.2, "y": 45.8},
+      {"x": 70.2, "y": 46.1}
+    ],
+    "confidence": 80,
+    "notes": "Возможно, это блик, требуется проверка."
   }
-]`;
+]
+\`\`\`
+`;
 
         for (const [angle, base64Image] of Object.entries(photos)) {
             if (!base64Image) continue;
-            
-            processingStatus.textContent = `Анализируем...`;
-            if (appState.mode === 'multi') {
-                 const angleText = document.querySelector(`.angle-slot[data-angle=${angle}] span`)?.textContent || angle;
-                 processingStatus.textContent = `Анализируем: ${angleText}...`;
-            }
-
+            processingStatus.textContent = `Анализируем: ${angle}...`;
             const pureBase64 = base64Image.split(',')[1];
             const payload = {
                 contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: "image/jpeg", data: pureBase64 } }] }],
                 generationConfig: { responseMimeType: "application/json" }
             };
-            
             const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
 
             if (!response.ok) {
-                 const errorBody = await response.text();
-                 console.error(`Ошибка API для ${angle}: ${response.status}`, errorBody);
-                 throw new Error(`Сервер вернул ошибку при анализе фото (${angle}).`);
+                const errorBody = await response.text();
+                console.error(`Ошибка API для ${angle}: ${response.status}`, errorBody);
+                throw new Error(`Сервер вернул ошибку при анализе фото (${angle}).`);
             }
-            
             const result = await response.json();
-            
             if (result.candidates && result.candidates[0].content && result.candidates[0].content.parts[0].text) {
                 const text = result.candidates[0].content.parts[0].text;
                 try {
@@ -707,58 +794,49 @@ document.addEventListener('DOMContentLoaded', () => {
                         damage.id = totalDamageCounter++;
                         finalResults[angle].push(damage);
                     });
-                } catch(e) {
-                      console.error(`Ошибка парсинга JSON для ${angle}:`, e, "Полученный текст:", text);
-                      finalResults[angle] = []; // Считаем, что повреждений нет, если JSON некорректен
+                } catch (e) {
+                    console.error(`Ошибка парсинга JSON для ${angle}:`, e, "Полученный текст:", text);
+                    finalResults[angle] = [];
                 }
             } else {
-                 console.warn(`Нет валидных кандидатов в ответе для ${angle}`, result);
-                 finalResults[angle] = [];
+                console.warn(`Нет валидных кандидатов в ответе для ${angle}`, result);
+                finalResults[angle] = [];
             }
         }
         return finalResults;
     }
-    
+
+    // --- Логика РЕЗУЛЬТАТОВ ---
     function displayResults(results) {
         resultsContainer.innerHTML = '';
         let totalDamages = 0;
-
         for (const angle in results) {
             if ((appState.mode === 'multi' && appState.photos[angle]) || (appState.mode === 'single' && appState.singlePhoto)) {
                 totalDamages += results[angle].length;
-
                 const resultItem = document.createElement('div');
                 resultItem.className = 'result-item';
-
                 const title = document.createElement('h3');
                 const angleText = appState.mode === 'multi' ? (document.querySelector(`.angle-slot[data-angle=${angle}] span`)?.textContent || 'Фото') : 'Результат анализа';
                 title.textContent = `${angleText} (${results[angle].length} повр.)`;
-                
                 const imageContainer = document.createElement('div');
                 imageContainer.className = 'result-image-container';
                 const canvas = document.createElement('canvas');
                 canvas.className = 'result-canvas';
                 imageContainer.appendChild(canvas);
-
                 resultItem.appendChild(title);
                 resultItem.appendChild(imageContainer);
-
                 const damageList = document.createElement('div');
                 if (results[angle].length > 0) {
                     results[angle].forEach(damage => {
                         const p = document.createElement('p');
                         p.className = 'damage-item';
-                        
                         let damageDetails = `<strong>#${damage.id} <span class="part">${damage.part || 'Деталь не указана'}</span>:</strong> ${damage.type || 'Тип не указан'} - <em>${damage.location || 'Место не указано'}</em>`;
-                        
                         if (damage.damage_percent) {
                             damageDetails += ` (Повреждено ~${damage.damage_percent}%)`;
                         }
-
                         if (damage.confidence < 90) {
-                             damageDetails += `<br><span style="color: #E67E22;">⚠️ **Уверенность: ${damage.confidence}%** (Примечание: ${damage.notes || 'есть сомнения'})</span>`;
+                            damageDetails += `<br><span style="color: #E67E22;">⚠️ **Уверенность: ${damage.confidence}%** (Примечание: ${damage.notes || 'есть сомнения'})</span>`;
                         }
-
                         p.innerHTML = damageDetails;
                         damageList.appendChild(p);
                     });
@@ -766,24 +844,17 @@ document.addEventListener('DOMContentLoaded', () => {
                     damageList.innerHTML = '<p>Повреждений не найдено.</p>';
                 }
                 resultItem.appendChild(damageList);
-
-                if (appState.mode === 'single' || window.innerWidth < 768) {
-                    resultsContainer.appendChild(resultItem);
-                } else {  
-                    let lastGrid = resultsContainer.querySelector('.results-grid:last-child');
-                    if (!lastGrid || lastGrid.children.length >= 2) {
-                        lastGrid = document.createElement('div');
-                        lastGrid.className = 'results-grid';
-                        resultsContainer.appendChild(lastGrid);
-                    }
-                    lastGrid.appendChild(resultItem);
+                let lastGrid = resultsContainer.querySelector('.results-grid:last-child');
+                if (!lastGrid || (window.innerWidth >= 768 && lastGrid.children.length >= 2)) {
+                    lastGrid = document.createElement('div');
+                    lastGrid.className = 'results-grid';
+                    resultsContainer.appendChild(lastGrid);
                 }
-                
+                lastGrid.appendChild(resultItem);
                 const imageUrl = appState.mode === 'multi' ? appState.photos[angle] : appState.singlePhoto;
                 drawOnCanvas(canvas, imageUrl, results[angle]);
             }
         }
-        
         if (totalDamages === 0) {
             resultsSummary.style.display = 'none';
             resultsContainer.innerHTML = `<div class="card"><p style="color: var(--success-color); font-weight: bold; font-size: 1.2em;">Отлично! В ходе анализа повреждений не было обнаружено.</p></div>`;
@@ -801,58 +872,51 @@ document.addEventListener('DOMContentLoaded', () => {
             canvas.height = img.height;
             canvas.style.width = '100%';
             canvas.style.height = 'auto';
-
             ctx.drawImage(img, 0, 0);
 
             damages.forEach(damage => {
-                if (!damage.bbox || damage.bbox.length !== 4) return;
-                const [x_perc, y_perc, w_perc, h_perc] = damage.bbox;
-                const x = (x_perc / 100) * img.width;
-                const y = (y_perc / 100) * img.height;
-                const w = (w_perc / 100) * img.width;
-                const h = (h_perc / 100) * img.height;
+                if (!damage.segmentation_polygon || damage.segmentation_polygon.length < 3) return;
+                const polygon = damage.segmentation_polygon;
 
-                ctx.lineWidth = Math.max(3, img.width / 200);
+                // Устанавливаем цвет заливки
+                ctx.fillStyle = (damage.confidence < 90) ? 'rgba(255, 165, 0, 0.5)' : 'rgba(255, 0, 0, 0.5)';
 
-                if (damage.confidence < 90) {
-                    ctx.strokeStyle = '#FFA500'; // Orange
-                    ctx.setLineDash([15, 10]); 
-                } else {
-                    ctx.strokeStyle = 'red';
-                    ctx.setLineDash([]); 
+                // Рисуем полигон
+                ctx.beginPath();
+                ctx.moveTo((polygon[0].x / 100) * img.width, (polygon[0].y / 100) * img.height);
+                for (let i = 1; i < polygon.length; i++) {
+                    ctx.lineTo((polygon[i].x / 100) * img.width, (polygon[i].y / 100) * img.height);
                 }
-                
-                ctx.strokeRect(x, y, w, h);
-                ctx.setLineDash([]); 
+                ctx.closePath();
+                ctx.fill();
 
+                // Рисуем номер поверх
+                let sumX = 0, sumY = 0;
+                polygon.forEach(p => { sumX += p.x; sumY += p.y; });
+                const centerX = (sumX / polygon.length / 100) * img.width;
+                const centerY = (sumY / polygon.length / 100) * img.height;
                 const fontSize = Math.max(20, img.width / 35);
                 ctx.font = `bold ${fontSize}px sans-serif`;
                 const text = damage.id.toString();
                 const textMetrics = ctx.measureText(text);
-                const textWidth = textMetrics.width;
-                const textHeight = fontSize; 
-                
-                const textX = x + w / 2;
-                const textY = y + h / 2;
-                
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-                ctx.fillRect(textX - textWidth / 2 - 8, textY - textHeight / 2 - 4, textWidth + 16, textHeight + 8);
-
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                ctx.fillRect(centerX - textMetrics.width / 2 - 8, centerY - fontSize / 2 - 4, textMetrics.width + 16, fontSize + 8);
                 ctx.fillStyle = 'white';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                ctx.fillText(text, textX, textY);
+                ctx.fillText(text, centerX, centerY);
             });
         };
         img.src = imageUrl;
     }
-    
+
     function showErrorMessage(message) {
         errorMessage.textContent = message;
         errorMessage.style.display = 'block';
     }
-    
+
     function resetState() {
+        appState.isDetecting = false;
         appState.currentAngle = null;
         appState.photos = { front: null, rear: null, left: null, right: null };
         appState.singlePhoto = null;
@@ -861,10 +925,9 @@ document.addEventListener('DOMContentLoaded', () => {
             appState.stream.getTracks().forEach(track => track.stop());
             appState.stream = null;
         }
-        // Сброс UI
         angleSlots.forEach(slot => {
-            const span = slot.querySelector('span');
-            const angleText = span ? span.textContent : (slot.dataset.angle.charAt(0).toUpperCase() + slot.dataset.angle.slice(1));
+            const angle = slot.dataset.angle;
+            const angleText = {front: 'Вид спереди', rear: 'Вид сзади', left: 'Левая сторона', right: 'Правая сторона'}[angle];
             slot.innerHTML = `<span>${angleText}</span>`;
             slot.classList.remove('completed', 'active');
         });

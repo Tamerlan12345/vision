@@ -974,19 +974,27 @@ document.addEventListener('DOMContentLoaded', () => {
                 const polygon = damage.segmentation_polygon;
 
                 const color = damageTypeColors[damage.type] || damageTypeColors.default;
-                ctx.fillStyle = color;
-                ctx.strokeStyle = 'white';
-                ctx.lineWidth = Math.max(4, img.width / 250); // Make line thicker
 
-                // Draw the polygon
+                // --- Expanded Highlight Effect ---
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)'; // Semi-transparent white for a "glow"
+                ctx.lineWidth = Math.max(15, img.width / 60);   // Significantly thicker line for the glow
+                ctx.lineJoin = 'round'; // Smooth corners
+                ctx.lineCap = 'round';  // Smooth ends
+
+                // Draw the polygon path
                 ctx.beginPath();
                 ctx.moveTo((polygon[0].x / 100) * img.width, (polygon[0].y / 100) * img.height);
                 for (let i = 1; i < polygon.length; i++) {
                     ctx.lineTo((polygon[i].x / 100) * img.width, (polygon[i].y / 100) * img.height);
                 }
                 ctx.closePath();
+
+                // Draw the glow effect (stroke) first
+                ctx.stroke();
+
+                // Then draw the colored fill on top
+                ctx.fillStyle = color;
                 ctx.fill();
-                ctx.stroke(); // Draw the outline
 
                 // Draw the number on top
                 let sumX = 0, sumY = 0;

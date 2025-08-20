@@ -321,6 +321,56 @@
         }
 
         #svg-templates { width: 0; height: 0; overflow: hidden; position: absolute; }
+
+        /* Modal for Zoom */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            visibility: visible;
+            opacity: 1;
+            transition: opacity 0.2s ease-in-out;
+            pointer-events: auto;
+        }
+        .modal-overlay.hidden {
+            visibility: hidden;
+            opacity: 0;
+            pointer-events: none;
+        }
+        .modal-content {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 12px;
+            position: relative;
+            max-width: 90%;
+            max-height: 90%;
+            min-width: 300px;
+            min-height: 300px;
+        }
+        .modal-close-btn {
+            position: absolute;
+            top: 10px;
+            right: 20px;
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #555;
+            cursor: pointer;
+        }
+        .modal-close-btn:hover {
+            color: #000;
+        }
+        #zoom-canvas {
+            max-width: 100%;
+            max-height: 80vh;
+            border-radius: 8px;
+        }
     </style>
 </head>
 <body>
@@ -414,6 +464,13 @@
         </section>
     </main>
 
+    <div id="zoom-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <span class="modal-close-btn">&times;</span>
+            <canvas id="zoom-canvas"></canvas>
+        </div>
+    </div>
+
     <div id="svg-templates">
         <svg id="svg-front" viewBox="0 0 100 60"><path d="M20 50 L10 40 L10 20 L20 10 L80 10 L90 20 L90 40 L80 50 Z M15 45 L15 15 L20 12 L80 12 L85 15 L85 45 L80 48 L20 48 Z M25 20h50v15H25z m-5 20h60v5H20z m5-25h5v-5h-5z m40 0h5v-5h-5z"></path></svg>
         <svg id="svg-rear" viewBox="0 0 100 60"><path d="M20 50 L10 40 L10 20 L20 10 L80 10 L90 20 L90 40 L80 50 Z M15 45 L15 15 L20 12 L80 12 L85 15 L85 45 L80 48 L20 48 Z M25 35h50v5H25z m-5-15h10v10H20z m50 0h10v10H70z"></path></svg>
@@ -467,6 +524,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const resultsSummary = document.getElementById('results-summary');
     const processingStatus = document.getElementById('processing-status');
     const realtimeFeedback = document.getElementById('realtime-feedback');
+    const zoomModal = document.getElementById('zoom-modal');
+    const zoomCanvas = document.getElementById('zoom-canvas');
+    const closeModalBtn = document.querySelector('.modal-close-btn');
+
+    // --- Управление модальным окном ---
+    closeModalBtn.addEventListener('click', () => zoomModal.classList.add('hidden'));
+    zoomModal.addEventListener('click', (e) => {
+        if (e.target === zoomModal) { // Click on overlay, not content
+            zoomModal.classList.add('hidden');
+        }
+    });
 
     // --- Управление экранами и вкладками ---
     const showScreen = (screenName) => {
@@ -649,7 +717,7 @@ document.addEventListener('DOMContentLoaded', () => {
             appState.isFramingGood = false;
             return;
         }
-        
+
         const centerX = x + width / 2;
         const centerThreshold = videoWidth * 0.15;
         if (Math.abs(centerX - videoWidth / 2) > centerThreshold) {
@@ -671,9 +739,9 @@ document.addEventListener('DOMContentLoaded', () => {
             let tilt = 50 + (gamma / 90) * 50;
             tilt = Math.max(0, Math.min(100, tilt));
             tiltMarker.style.left = `${tilt}%`;
-            
+
             const isTiltOk = Math.abs(gamma) <= 5;
-            
+
             if (appState.isFramingGood && isTiltOk) {
                 captureBtn.disabled = false;
                 captureBtn.style.backgroundColor = 'var(--success-color)';
@@ -709,64 +777,33 @@ document.addEventListener('DOMContentLoaded', () => {
         const finalResults = {};
         let totalDamageCounter = 1;
 
-        const prompt = `Ты — ведущий мировой эксперт по компьютерному зрению и оценке повреждений автомобилей. Твоя задача — провести анализ изображения и выполнить **сегментацию** каждого дефекта, то есть очертить его точный контур.
+        const prompt = `Ты — судебный эксперт-оценщик автомобилей с 20-летним опытом, известный своей дотошностью. Твоя задача — провести МАКСИМАЛЬНО скрупулезный анализ изображения автомобиля. Ты должен найти АБСОЛЮТНО все дефекты, включая самые незначительные, такие как "паутинка" от мойки или "пескоструй" на бампере.
 
 **Твой мыслительный процесс (Chain of Thought):**
-1.  Внимательно изучи всё изображение, оценивая качество (четкость, свет, блики).
-2.  Последовательно анализируй каждую деталь автомобиля.
-3.  Для каждого реального дефекта (царапина, вмятина, скол) мысленно обведи его **точный контур**, игнорируя фон и неповрежденные области.
-4.  Преобразуй этот контур в последовательность точек (полигон). Точек должно быть достаточно для точного описания формы, но без избыточности. Для длинной царапины хватит нескольких точек, для сложной вмятины — больше.
-5.  Сформируй итоговый JSON-массив, содержащий эти полигоны.
+1.  **Первичный осмотр:** Изучи изображение целиком. Оцени качество, освещение, ракурс. Отметь для себя потенциально проблемные зоны (блики, тени, грязные участки).
+2.  **Декомпозиция:** Мысленно раздели автомобиль на крупные секции (капот, крыша, двери, бамперы, стекла, диски).
+3.  **Последовательный анализ:** Скрупулезно, сантиметр за сантиметром, изучи каждую секцию. Используй мысленное "увеличение" для рассмотрения мельчайших деталей.
+4.  **Идентификация и Сегментация:** Для каждого найденного дефекта немедленно очерти его точный контур (полигон). Не используй прямоугольники. Контур должен быть максимально плотным.
+5.  **Классификация:** Присвой каждому дефекту один из СТРОГО определенных типов.
+6.  **Самокоррекция:** После анализа всех секций, вернись к своим находкам. Перепроверь каждый дефект. Не является ли эта "царапина" просто бликом? Достаточно ли точно очерчен контур этой "вмятины"? Отбрось все сомнительные находки, в которых не уверен.
+7.  **Формирование отчета:** Только после полной уверенности, сформируй итоговый JSON-массив.
 
-Твои цели:
-1.  **Идентификация всех повреждений:** Вмятины, царапины, сколы, трещины и т.д.
-2.  **🎯 Создание точного контура (Полигона):** Вместо прямоугольника, верни массив точек \`{x, y}\`, который точно очерчивает границы повреждения.
-3.  **Критическая оценка уверенности:** Если качество фото мешает точно очертить контур, снижай уверенность и указывай причину.
+**СТРОГИЕ ТРЕБОВАНИЯ К ВЫВОДУ:**
 
-Структура JSON-объекта для каждого повреждения:
-1. "type": Тип повреждения.
-2. "part": Деталь автомобиля.
-3. "location": Уточняющее описание местоположения.
-4. "damage_percent": Оценка в процентах, какая часть ДЕТАЛИ повреждена.
-5. "segmentation_polygon": Массив точек, описывающих контур повреждения. Каждая точка - это объект {"x": <число>, "y": <число>} в процентах от размера изображения.
-6. "confidence": Твоя уверенность от 0 до 100.
-7. "notes": Примечания, если уверенность низкая.
+1.  **Типы повреждений (поле "type"):** Ты ОБЯЗАН использовать ТОЛЬКО одно из следующих значений:
+    *   "Вмятина" (Dent)
+    *   "Царапина" (Scratch)
+    *   "Скол" (Chip)
+    *   "Трещина" (Crack)
+    *   "Потертость" (Scuff)
+    *   "Ржавчина" (Rust)
+    *   "Другое" (Other)
 
-Твой ответ ДОЛЖЕН БЫТЬ только JSON-массивом. Если повреждений нет, верни пустой массив [].
+2.  **Точная сегментация (поле "segmentation_polygon"):** Верни массив точек \`{x, y}\`, который ТОЧНО очерчивает границы повреждения. Точки должны быть в процентах от размера изображения.
 
-Пример ответа:
-\`\`\`json
-[
-  {
-    "type": "Вмятина",
-    "part": "Переднее левое крыло",
-    "location": "над колесной аркой",
-    "damage_percent": 15,
-    "segmentation_polygon": [
-      {"x": 20, "y": 50},
-      {"x": 35, "y": 52},
-      {"x": 33, "y": 60},
-      {"x": 22, "y": 58}
-    ],
-    "confidence": 95,
-    "notes": ""
-  },
-  {
-    "type": "Царапина",
-    "part": "Правая задняя дверь",
-    "location": "по центру",
-    "damage_percent": 8,
-    "segmentation_polygon": [
-      {"x": 70, "y": 45.1},
-      {"x": 85, "y": 44.8},
-      {"x": 85.2, "y": 45.8},
-      {"x": 70.2, "y": 46.1}
-    ],
-    "confidence": 80,
-    "notes": "Возможно, это блик, требуется проверка."
-  }
-]
-\`\`\`
+3.  **Критическая оценка уверенности (поле "confidence"):** Уверенность от 0 до 100. Если уверенность < 95, ОБЯЗАТЕЛЬНО укажи причину в поле "notes".
+
+Твой ответ ДОЛЖЕН БЫТЬ ИСКЛЮЧИТЕЛЬНО JSON-массивом. Не добавляй никакого текста, комментариев или \`\`\`json\`\`\` до или после массива. Если повреждений нет, верни пустой массив \`[]\`.
 `;
 
         for (const [angle, base64Image] of Object.entries(photos)) {
@@ -807,6 +844,55 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- Логика РЕЗУЛЬТАТОВ ---
+    const damageTypeColors = {
+        "Вмятина": "rgba(231, 76, 60, 0.6)",      // Red
+        "Царапина": "rgba(241, 196, 15, 0.6)",   // Yellow
+        "Скол": "rgba(52, 152, 219, 0.6)",       // Blue
+        "Трещина": "rgba(155, 89, 182, 0.6)",    // Purple
+        "Потертость": "rgba(26, 188, 156, 0.6)", // Teal
+        "Ржавчина": "rgba(165, 42, 42, 0.6)",    // Brown
+        "Другое": "rgba(149, 165, 166, 0.6)",    // Grey
+        "default": "rgba(243, 156, 18, 0.6)"     // Orange
+    };
+
+    function drawZoomedDamage(imageUrl, damage) {
+        console.log(`drawZoomedDamage called for damage ID: ${damage.id}`);
+        const img = new Image();
+        img.onerror = (err) => {
+            console.error("Error loading image for zoom canvas:", err);
+        };
+        img.onload = () => {
+            console.log(`Image loaded for zoom. Drawing now.`);
+            // Calculate bounding box from polygon
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            damage.segmentation_polygon.forEach(p => {
+                minX = Math.min(minX, p.x);
+                minY = Math.min(minY, p.y);
+                maxX = Math.max(maxX, p.x);
+                maxY = Math.max(maxY, p.y);
+            });
+
+            // Add some padding to the bounding box
+            const paddingWidth = (maxX - minX) * 0.2; // 20% padding
+            const paddingHeight = (maxY - minY) * 0.2;
+
+            const sx = Math.max(0, (minX / 100) * img.width - paddingWidth);
+            const sy = Math.max(0, (minY / 100) * img.height - paddingHeight);
+            const sWidth = ((maxX - minX) / 100) * img.width + paddingWidth * 2;
+            const sHeight = ((maxY - minY) / 100) * img.height + paddingHeight * 2;
+
+            zoomCanvas.width = sWidth;
+            zoomCanvas.height = sHeight;
+
+            const zCtx = zoomCanvas.getContext('2d');
+            zCtx.drawImage(img, sx, sy, sWidth, sHeight, 0, 0, zoomCanvas.width, zoomCanvas.height);
+
+            zoomModal.classList.remove('hidden');
+            zoomModal.dataset.status = 'ready';
+        };
+        img.src = imageUrl;
+    }
+
     function displayResults(results) {
         resultsContainer.innerHTML = '';
         let totalDamages = 0;
@@ -830,6 +916,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     results[angle].forEach(damage => {
                         const p = document.createElement('p');
                         p.className = 'damage-item';
+                        p.style.cursor = 'pointer';
+
                         let damageDetails = `<strong>#${damage.id} <span class="part">${damage.part || 'Деталь не указана'}</span>:</strong> ${damage.type || 'Тип не указан'} - <em>${damage.location || 'Место не указано'}</em>`;
                         if (damage.damage_percent) {
                             damageDetails += ` (Повреждено ~${damage.damage_percent}%)`;
@@ -838,6 +926,13 @@ document.addEventListener('DOMContentLoaded', () => {
                             damageDetails += `<br><span style="color: #E67E22;">⚠️ **Уверенность: ${damage.confidence}%** (Примечание: ${damage.notes || 'есть сомнения'})</span>`;
                         }
                         p.innerHTML = damageDetails;
+
+                        p.addEventListener('click', () => {
+                            console.log(`Click event fired for damage ID: ${damage.id}`);
+                            const imageUrl = appState.mode === 'multi' ? appState.photos[angle] : appState.singlePhoto;
+                            drawZoomedDamage(imageUrl, damage);
+                        });
+
                         damageList.appendChild(p);
                     });
                 } else {
@@ -878,10 +973,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!damage.segmentation_polygon || damage.segmentation_polygon.length < 3) return;
                 const polygon = damage.segmentation_polygon;
 
-                // Устанавливаем цвет заливки
-                ctx.fillStyle = (damage.confidence < 90) ? 'rgba(255, 165, 0, 0.5)' : 'rgba(255, 0, 0, 0.5)';
+                const color = damageTypeColors[damage.type] || damageTypeColors.default;
+                ctx.fillStyle = color;
+                ctx.strokeStyle = 'white';
+                ctx.lineWidth = Math.max(4, img.width / 250); // Make line thicker
 
-                // Рисуем полигон
+                // Draw the polygon
                 ctx.beginPath();
                 ctx.moveTo((polygon[0].x / 100) * img.width, (polygon[0].y / 100) * img.height);
                 for (let i = 1; i < polygon.length; i++) {
@@ -889,8 +986,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 ctx.closePath();
                 ctx.fill();
+                ctx.stroke(); // Draw the outline
 
-                // Рисуем номер поверх
+                // Draw the number on top
                 let sumX = 0, sumY = 0;
                 polygon.forEach(p => { sumX += p.x; sumY += p.y; });
                 const centerX = (sumX / polygon.length / 100) * img.width;
@@ -939,6 +1037,11 @@ document.addEventListener('DOMContentLoaded', () => {
         tabButtons.forEach((btn, index) => btn.classList.toggle('active', index === 0));
         tabContents.forEach((content, index) => content.classList.toggle('active', index === 0));
     }
+
+    // Expose functions for testing
+    window.appState = appState;
+    window.showScreen = showScreen;
+    window.displayResults = displayResults;
 });
 </script>
 </body>

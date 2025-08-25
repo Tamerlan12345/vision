@@ -1,0 +1,22 @@
+[
+  {
+    "id": "task-1",
+    "boardId": "board-1",
+    "columnId": "col-2",
+    "title": "Настроить репозиторий проекта",
+    "description": "Инициализировать проект с README и базовой структурой.",
+    "assigneeId": "user-2",
+    "epicId": null,
+    "sprintId": null
+  },
+  {
+    "id": "task-2",
+    "boardId": "board-1",
+    "columnId": "col-1",
+    "title": "Спроектировать флоу аутентификации",
+    "description": "Создать вайрфреймы и мокапы для логина и регистрации.",
+    "assigneeId": null,
+    "epicId": null,
+    "sprintId": null
+  }
+]

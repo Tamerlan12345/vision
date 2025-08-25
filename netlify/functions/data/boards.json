@@ -1,0 +1,12 @@
+[
+  {
+    "id": "board-1",
+    "name": "Project Phoenix",
+    "columns": [
+      { "id": "col-1", "name": "Backlog", "order": 0 },
+      { "id": "col-2", "name": "To Do", "order": 1 },
+      { "id": "col-3", "name": "In Progress", "order": 2 },
+      { "id": "col-4", "name": "Done", "order": 3 }
+    ]
+  }
+]

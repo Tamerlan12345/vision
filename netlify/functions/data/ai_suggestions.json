@@ -1,0 +1,14 @@
+[
+  {
+    "id": "sugg-1",
+    "taskId": "task-2",
+    "status": "pending",
+    "suggestedSubtasks": [
+      { "title": "Создать вайрфрейм для страницы логина", "completed": false },
+      { "title": "Создать вайрфрейм для страницы регистрации", "completed": false },
+      { "title": "Определить схему данных пользователя", "completed": false }
+    ],
+    "requestedBy": "user-1",
+    "createdAt": "2025-08-25T10:00:00Z"
+  }
+]

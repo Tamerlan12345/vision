@@ -1,0 +1,10 @@
+[
+  {
+    "id": "user-1",
+    "name": "Admin User"
+  },
+  {
+    "id": "user-2",
+    "name": "Regular User"
+  }
+]

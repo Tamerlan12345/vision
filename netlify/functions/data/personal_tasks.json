@@ -1,0 +1,16 @@
+[
+  {
+    "id": "ptask-1",
+    "projectTaskId": "task-1",
+    "userId": "user-2",
+    "title": "Создать локальный git-репозиторий",
+    "completed": true
+  },
+  {
+    "id": "ptask-2",
+    "projectTaskId": "task-1",
+    "userId": "user-2",
+    "title": "Отправить первый коммит в удаленный репозиторий",
+    "completed": false
+  }
+]

@@ -771,76 +771,72 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function analyzeWithGemini(photos) {
-        // ВАЖНО: Замените "YOUR_API_KEY" на ваш реальный ключ API
-        const apiKey = "AIzaSyC9uT3mmCRqCk48uQiryQ4Pf7gOgIKOP_w";
-        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
-        const finalResults = {};
+        const apiUrl = '/.netlify/functions/analyze'; // The new endpoint
         let totalDamageCounter = 1;
 
-        const prompt = `Ты — судебный эксперт-оценщик автомобилей с 20-летним опытом, известный своей дотошностью. Твоя задача — провести МАКСИМАЛЬНО скрупулезный анализ изображения автомобиля. Ты должен найти АБСОЛЮТНО все дефекты, включая самые незначительные, такие как "паутинка" от мойки или "пескоструй" на бампере.
+        // Improved Prompt
+        const prompt = `You are a world-class automotive damage assessment expert. Your task is to conduct a meticulous analysis of the provided car image. You must identify ALL defects, from major impacts to minor flaws like swirl marks or rock chips. For each identified defect, you must provide a detailed, structured report.
 
-**Твой мыслительный процесс (Chain of Thought):**
-1.  **Первичный осмотр:** Изучи изображение целиком. Оцени качество, освещение, ракурс. Отметь для себя потенциально проблемные зоны (блики, тени, грязные участки).
-2.  **Декомпозиция:** Мысленно раздели автомобиль на крупные секции (капот, крыша, двери, бамперы, стекла, диски).
-3.  **Последовательный анализ:** Скрупулезно, сантиметр за сантиметром, изучи каждую секцию. Используй мысленное "увеличение" для рассмотрения мельчайших деталей.
-4.  **Идентификация и Сегментация:** Для каждого найденного дефекта немедленно очерти его точный контур (полигон). Не используй прямоугольники. Контур должен быть максимально плотным.
-5.  **Классификация:** Присвой каждому дефекту один из СТРОГО определенных типов.
-6.  **Самокоррекция:** После анализа всех секций, вернись к своим находкам. Перепроверь каждый дефект. Не является ли эта "царапина" просто бликом? Достаточно ли точно очерчен контур этой "вмятины"? Отбрось все сомнительные находки, в которых не уверен.
-7.  **Формирование отчета:** Только после полной уверенности, сформируй итоговый JSON-массив.
+**Chain of Thought:**
+1.  **Initial Scan:** Quickly scan the entire image to understand the context, lighting, and angle. Note any areas obscured by shadows, reflections, or dirt.
+2.  **Systematic Decomposition:** Mentally divide the vehicle into standard parts (e.g., front bumper, hood, left front fender, left front door, etc.).
+3.  **Sequential Analysis:** Examine each part methodically, as if using a magnifying glass.
+4.  **Defect Identification & Segmentation:** For each defect, precisely outline its boundary with a polygon. Do NOT use simple boxes. The polygon must be tight and accurate.
+5.  **Detailed Classification & Description:** Classify the defect and provide a rich, detailed description.
+6.  **Critical Review:** Re-evaluate every identified defect. Is it truly damage or just a reflection? Is the polygon accurate? Is the description clear? Discard any findings you are not confident about.
+7.  **Report Generation:** Only after this rigorous process, compile the final JSON array.
 
-**СТРОГИЕ ТРЕБОВАНИЯ К ВЫВОДУ:**
+**STRICT OUTPUT REQUIREMENTS:**
 
-1.  **Типы повреждений (поле "type"):** Ты ОБЯЗАН использовать ТОЛЬКО одно из следующих значений:
-    *   "Вмятина" (Dent)
-    *   "Царапина" (Scratch)
-    *   "Скол" (Chip)
-    *   "Трещина" (Crack)
-    *   "Потертость" (Scuff)
-    *   "Ржавчина" (Rust)
-    *   "Другое" (Other)
+Your response MUST be ONLY a JSON array. Do not add any text, comments, or markdown before or after the array. If no damage is found, return an empty array \`[]\`.
 
-2.  **Точная сегментация (поле "segmentation_polygon"):** Верни массив точек \`{x, y}\`, который ТОЧНО очерчивает границы повреждения. Точки должны быть в процентах от размера изображения.
+Each object in the array must have the following structure:
+{
+  "part": "STRING", // The specific car part (e.g., "Front Bumper", "Hood", "Left Front Door"). Be precise.
+  "type": "STRING", // MUST be one of: "Dent", "Scratch", "Chip", "Crack", "Scuff", "Rust", "Other".
+  "location": "STRING", // A brief description of the location ON THE PART (e.g., "upper right corner", "center, near the headlight", "along the bottom edge").
+  "description": "STRING", // A DETAILED, expert description of the damage. For a scratch, specify length and depth (e.g., "Deep scratch, approx. 15cm long, appears to have penetrated the clear coat."). For a dent, describe its size and shape (e.g., "Shallow, round dent, approx. 5cm in diameter.").
+  "confidence": "INTEGER", // Your confidence level (0-100). If < 95, explain why in the 'notes'.
+  "notes": "STRING", // Optional: Mention any uncertainties (e.g., "Poor lighting in this area makes it hard to be certain.", "Could be a reflection, but appears to have depth.").
+  "segmentation_polygon": [
+    { "x": "FLOAT", "y": "FLOAT" }, // An array of {x, y} points outlining the damage. Values must be percentages of the image dimensions (0.0 to 100.0).
+    ...
+  ]
+}`;
 
-3.  **Критическая оценка уверенности (поле "confidence"):** Уверенность от 0 до 100. Если уверенность < 95, ОБЯЗАТЕЛЬНО укажи причину в поле "notes".
+        processingStatus.textContent = 'Отправка изображений на сервер для анализа...';
 
-Твой ответ ДОЛЖЕН БЫТЬ ИСКЛЮЧИТЕЛЬНО JSON-массивом. Не добавляй никакого текста, комментариев или \`\`\`json\`\`\` до или после массива. Если повреждений нет, верни пустой массив \`[]\`.
-`;
+        const payload = {
+            photos: photos,
+            prompt: prompt
+        };
 
-        for (const [angle, base64Image] of Object.entries(photos)) {
-            if (!base64Image) continue;
-            processingStatus.textContent = `Анализируем: ${angle}...`;
-            const pureBase64 = base64Image.split(',')[1];
-            const payload = {
-                contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: "image/jpeg", data: pureBase64 } }] }],
-                generationConfig: { responseMimeType: "application/json" }
-            };
-            const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
 
-            if (!response.ok) {
-                const errorBody = await response.text();
-                console.error(`Ошибка API для ${angle}: ${response.status}`, errorBody);
-                throw new Error(`Сервер вернул ошибку при анализе фото (${angle}).`);
-            }
-            const result = await response.json();
-            if (result.candidates && result.candidates[0].content && result.candidates[0].content.parts[0].text) {
-                const text = result.candidates[0].content.parts[0].text;
-                try {
-                    const damages = JSON.parse(text);
-                    finalResults[angle] = [];
-                    damages.forEach(damage => {
-                        damage.id = totalDamageCounter++;
-                        finalResults[angle].push(damage);
-                    });
-                } catch (e) {
-                    console.error(`Ошибка парсинга JSON для ${angle}:`, e, "Полученный текст:", text);
-                    finalResults[angle] = [];
-                }
-            } else {
-                console.warn(`Нет валидных кандидатов в ответе для ${angle}`, result);
-                finalResults[angle] = [];
+        if (!response.ok) {
+            const errorBody = await response.text();
+            console.error('Ошибка вызова функции анализа:', response.status, errorBody);
+            try {
+                const errorJson = JSON.parse(errorBody);
+                throw new Error(`Ошибка сервера: ${errorJson.error || 'Неизвестная ошибка'}`);
+            } catch (e) {
+                throw new Error(`Ошибка сервера (статус ${response.status}). Не удалось получить детали.`);
             }
         }
-        return finalResults;
+
+        const results = await response.json();
+
+        // The server-side function now returns results with IDs, so we don't need to add them here.
+        // We just need to update the processing status text.
+        Object.keys(results).forEach(angle => {
+             processingStatus.textContent = `Результаты для "${angle}" получены.`;
+        });
+
+        return results;
     }
 
     // --- Логика РЕЗУЛЬТАТОВ ---
@@ -918,14 +914,15 @@ document.addEventListener('DOMContentLoaded', () => {
                         p.className = 'damage-item';
                         p.style.cursor = 'pointer';
 
-                        let damageDetails = `<strong>#${damage.id} <span class="part">${damage.part || 'Деталь не указана'}</span>:</strong> ${damage.type || 'Тип не указан'} - <em>${damage.location || 'Место не указано'}</em>`;
-                        if (damage.damage_percent) {
-                            damageDetails += ` (Повреждено ~${damage.damage_percent}%)`;
+                        let damageTitle = `<strong>#${damage.id} ${damage.part || 'Неизвестная деталь'}</strong> - ${damage.type || 'Неизвестный тип'}`;
+                        let damageLocation = `<div style="font-style: italic; color: #555; margin-top: 4px;"><strong>Расположение:</strong> ${damage.location || 'не указано'}</div>`;
+                        let damageDescription = `<div style="margin-top: 6px;"><strong>Описание:</strong> ${damage.description || 'отсутствует'}</div>`;
+                        let damageConfidence = '';
+                        if (damage.confidence < 95) {
+                            damageConfidence = `<div style="margin-top: 6px; color: #D35400;"><strong>Уверенность: ${damage.confidence}%</strong>. Примечание: ${damage.notes || 'Низкая уверенность'}</div>`;
                         }
-                        if (damage.confidence < 90) {
-                            damageDetails += `<br><span style="color: #E67E22;">⚠️ **Уверенность: ${damage.confidence}%** (Примечание: ${damage.notes || 'есть сомнения'})</span>`;
-                        }
-                        p.innerHTML = damageDetails;
+
+                        p.innerHTML = damageTitle + damageLocation + damageDescription + damageConfidence;
 
                         p.addEventListener('click', () => {
                             console.log(`Click event fired for damage ID: ${damage.id}`);
@@ -975,13 +972,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const color = damageTypeColors[damage.type] || damageTypeColors.default;
 
-                // --- Expanded Highlight Effect ---
-                ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)'; // Semi-transparent white for a "glow"
-                ctx.lineWidth = Math.max(15, img.width / 60);   // Significantly thicker line for the glow
-                ctx.lineJoin = 'round'; // Smooth corners
-                ctx.lineCap = 'round';  // Smooth ends
+                // --- Enhanced Highlighting ---
+                ctx.save(); // Save the current state
 
-                // Draw the polygon path
+                // 1. Create the polygon path
                 ctx.beginPath();
                 ctx.moveTo((polygon[0].x / 100) * img.width, (polygon[0].y / 100) * img.height);
                 for (let i = 1; i < polygon.length; i++) {
@@ -989,28 +983,46 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 ctx.closePath();
 
-                // Draw the glow effect (stroke) first
+                // 2. Draw the "glow" effect (a thick, semi-transparent white stroke)
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+                ctx.lineWidth = Math.max(12, img.width / 70); // Thicker line for glow
+                ctx.lineJoin = 'round';
+                ctx.lineCap = 'round';
                 ctx.stroke();
 
-                // Then draw the colored fill on top
+                // 3. Draw the colored fill
                 ctx.fillStyle = color;
                 ctx.fill();
 
-                // Draw the number on top
+                // 4. Draw a thinner, solid border on top for definition
+                ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+                ctx.lineWidth = Math.max(2, img.width / 400);
+                ctx.stroke();
+
+                ctx.restore(); // Restore to the original state (before path clipping)
+
+                // 5. Draw the numbered label
                 let sumX = 0, sumY = 0;
                 polygon.forEach(p => { sumX += p.x; sumY += p.y; });
                 const centerX = (sumX / polygon.length / 100) * img.width;
                 const centerY = (sumY / polygon.length / 100) * img.height;
-                const fontSize = Math.max(20, img.width / 35);
-                ctx.font = `bold ${fontSize}px sans-serif`;
+
+                const fontSize = Math.max(18, img.width / 40);
+                ctx.font = `bold ${fontSize}px Arial, sans-serif`;
                 const text = damage.id.toString();
                 const textMetrics = ctx.measureText(text);
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-                ctx.fillRect(centerX - textMetrics.width / 2 - 8, centerY - fontSize / 2 - 4, textMetrics.width + 16, fontSize + 8);
+
+                // Draw a background for the text
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, textMetrics.width, 0, 2 * Math.PI);
+                ctx.fill();
+
+                // Draw the text
                 ctx.fillStyle = 'white';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                ctx.fillText(text, centerX, centerY);
+                ctx.fillText(text, centerX, centerY + 1); // Small offset for better centering
             });
         };
         img.src = imageUrl;

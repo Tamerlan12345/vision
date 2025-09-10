@@ -155,12 +155,21 @@
             align-items: center;
             justify-content: center;
         }
+        .angle-slot::before {
+            content: '📷';
+            font-size: 2em;
+            color: var(--primary-color);
+            margin-bottom: 8px;
+            display: block;
+            pointer-events: none;
+        }
         .angle-slot:hover { border-color: var(--primary-color); }
         .angle-slot.active {
             border-color: var(--primary-color);
             border-style: solid;
             background-color: #f0f6ff;
         }
+        .angle-slot.completed::before { content: ''; }
         .angle-slot.completed::after {
             content: '✔';
             position: absolute;
@@ -176,6 +185,22 @@
             object-fit: cover;
             border-radius: 6px;
         }
+        .remove-photo-btn {
+            position: absolute;
+            top: 6px;
+            right: 6px;
+            background: rgba(0,0,0,0.6);
+            color: #fff;
+            border: none;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .remove-photo-btn:hover { background: rgba(0,0,0,0.8); }
 
         #camera-area { margin-top: 20px; }
         .camera-container {
@@ -204,6 +229,14 @@
             stroke: #fff;
             stroke-width: 2px;
             fill: none;
+        }
+
+        #realtime-feedback {
+            min-height: 24px;
+            font-weight: bold;
+            margin-top: 10px;
+            transition: color 0.3s;
+            color: var(--error-color);
         }
 
         .guidance {
@@ -425,7 +458,7 @@
                 <div class="guidance">
                     Держите телефон ровно:
                     <div id="tilt-indicator"><div id="tilt-marker"></div></div>
-                    <div id="realtime-feedback" style="min-height: 20px; color: var(--error-color); font-weight: bold;"></div>
+                    <div id="realtime-feedback"></div>
                 </div>
                 <div class="camera-container">
                     <video id="video-feed" playsinline autoplay muted></video>
@@ -659,8 +692,16 @@ document.addEventListener('DOMContentLoaded', () => {
         appState.photos[appState.currentAngle] = imageDataUrl;
         const slot = document.querySelector(`.angle-slot[data-angle="${appState.currentAngle}"]`);
         const angleText = slot.querySelector('span')?.textContent || slot.textContent;
-        slot.innerHTML = `<img src="${imageDataUrl}" class="preview" alt="${angleText}"><span style="display:none;">${angleText}</span>`;
+        slot.innerHTML = `<button class="remove-photo-btn" aria-label="Удалить фото">&times;</button><img src="${imageDataUrl}" class="preview" alt="${angleText}"><span style="display:none;">${angleText}</span>`;
         slot.classList.add('completed');
+        const removeBtn = slot.querySelector('.remove-photo-btn');
+        removeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            appState.photos[slot.dataset.angle] = null;
+            slot.innerHTML = `<span>${angleText}</span>`;
+            slot.classList.remove('completed');
+            analyzeBtn.disabled = Object.values(appState.photos).some(p => p === null);
+        });
         cameraArea.classList.add('hidden');
         if (appState.stream) {
             appState.stream.getTracks().forEach(track => track.stop());
@@ -694,6 +735,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!car) {
             realtimeFeedback.textContent = 'Автомобиль не найден';
+            realtimeFeedback.style.color = 'var(--error-color)';
             appState.isFramingGood = false;
             return;
         }
@@ -708,12 +750,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (areaRatio < MIN_AREA) {
             realtimeFeedback.textContent = 'Подвиньтесь ближе';
+            realtimeFeedback.style.color = 'var(--error-color)';
             appState.isFramingGood = false;
             return;
         }
 
         if (areaRatio > MAX_AREA) {
             realtimeFeedback.textContent = 'Подвиньтесь дальше';
+            realtimeFeedback.style.color = 'var(--error-color)';
             appState.isFramingGood = false;
             return;
         }
@@ -722,12 +766,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const centerThreshold = videoWidth * 0.15;
         if (Math.abs(centerX - videoWidth / 2) > centerThreshold) {
             realtimeFeedback.textContent = 'Отцентруйте автомобиль';
+            realtimeFeedback.style.color = 'var(--error-color)';
             appState.isFramingGood = false;
             return;
         }
 
         // All checks passed for now. Clarity check can be added here.
         realtimeFeedback.textContent = 'Отлично! Готово к съемке';
+        realtimeFeedback.style.color = 'var(--success-color)';
         appState.isFramingGood = true;
     }
 

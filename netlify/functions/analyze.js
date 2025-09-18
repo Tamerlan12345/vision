@@ -2,7 +2,7 @@
 
 exports.handler = async (event) => { // 1. Check for POST request if (event.httpMethod !== 'POST') { return { statusCode: 405, body: 'Method Not Allowed' }; }
 
-try { // 2. Extract data and API key const { photos, prompt } = JSON.parse(event.body); const apiKey = process.env.GEMINI_API_KEY;
+try { // 2. Extract data and API key const { photos } = JSON.parse(event.body); const apiKey = process.env.GEMINI_API_KEY;
 
 if (!apiKey) {
   console.error('GEMINI_API_KEY is not set in environment variables.');
@@ -19,7 +19,7 @@ const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}
 const finalResults = {};
 let totalDamageCounter = 1;
 
-const finalPrompt = prompt || `You are a world-class automotive damage assessment expert. Your task is to conduct a meticulous analysis of the provided car image. You must identify ALL defects, from major impacts to minor flaws like swirl marks or rock chips. For each identified defect, you must provide a detailed, structured report.
+const finalPrompt = `You are a world-class automotive damage assessment expert. Your task is to conduct a meticulous analysis of the provided car image. You must identify ALL defects, from major impacts to minor flaws like swirl marks or rock chips. For each identified defect, you must provide a detailed, structured report.
 Chain of Thought:
 
 Initial Scan: Quickly scan the entire image to understand the context, lighting, and angle. Note any areas obscured by shadows, reflections, or dirt.

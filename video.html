@@ -173,8 +173,8 @@
     </header>
     <main>
         <section id="screen-start" class="screen active card">
-            <h1>Видео-осмотр Автомобиля</h1>
-            <p>Эта система использует ИИ для анализа видео и обнаружения повреждений. Пожалуйста, следуйте инструкциям для наилучшего результата.</p>
+            <h1>Видео-осмотр Автомобиля в реальном времени</h1>
+            <p>Для достоверной оценки система требует провести видеозапись осмотра <strong>в реальном времени</strong>. Загрузка ранее записанных видео недоступна. Пожалуйста, следуйте инструкциям ниже.</p>
             <div class="instruction-list">
                 <li><strong>Освещение:</strong> Проводите съемку днем при хорошем, равномерном освещении. Избегайте прямых солнечных лучей и глубоких теней.</li>
                 <li><strong>Движение:</strong> Медленно и плавно обойдите автомобиль по кругу (360°). Держите телефон на расстоянии 1-1.5 метра от кузова.</li>
@@ -182,8 +182,6 @@
                 <li><strong>Продолжительность:</strong> Видео должно длиться от 30 до 60 секунд.</li>
             </div>
             <button id="start-recording-btn" class="btn">Начать запись</button>
-            <p style="margin-top:15px;">Или <label for="video-upload" style="color:var(--primary-color); cursor:pointer; text-decoration:underline;">загрузите готовое видео</label>.</p>
-            <input type="file" id="video-upload" accept="video/*" class="hidden">
         </section>
 
         <section id="screen-recording" class="screen card">
@@ -214,7 +212,6 @@
             </div>
         </section>
     </main>
-
     <script src="video-logic.js"></script>
 </body>
 </html>

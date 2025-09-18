@@ -8,7 +8,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const startRecordingBtn = document.getElementById('start-recording-btn');
     const stopRecordingBtn = document.getElementById('stop-recording-btn');
-    const videoUpload = document.getElementById('video-upload');
     const videoPreview = document.getElementById('video-preview');
     const processingStatus = document.getElementById('processing-status');
     const resultsContainer = document.getElementById('results-container');
@@ -61,19 +60,6 @@ document.addEventListener('DOMContentLoaded', () => {
             stream.getTracks().forEach(track => track.stop());
         }
         showScreen('processing');
-    });
-
-    videoUpload.addEventListener('change', (event) => {
-        const file = event.target.files[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                const base64data = reader.result;
-                analyzeVideo(base64data);
-            };
-            reader.readAsDataURL(file);
-            showScreen('processing');
-        }
     });
 
     async function analyzeVideo(videoBase64) {

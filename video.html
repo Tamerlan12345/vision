@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Видео-осмотр - Сентрас Иншуранс</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #0055A5;
+            --secondary-color: #f4f7f9;
+            --text-color: #333;
+            --border-color: #e0e0e0;
+            --success-color: #4CAF50;
+            --error-color: #F44336;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: var(--secondary-color);
+            color: var(--text-color);
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        header {
+            background-color: #fff;
+            padding: 15px 30px;
+            display: flex;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        .logo-container img {
+            height: 40px;
+        }
+
+        .logo-container span {
+            font-size: 1.2em;
+            font-weight: 700;
+            color: var(--primary-color);
+            margin-left: 15px;
+            vertical-align: middle;
+        }
+
+        main {
+            flex-grow: 1;
+            padding: 20px;
+            max-width: 900px;
+            margin: 0 auto;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        .screen { display: none; }
+        .screen.active { display: block; }
+
+        .card {
+            background-color: #fff;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            text-align: center;
+        }
+
+        h1, h2 { color: var(--primary-color); }
+        p { line-height: 1.6; }
+
+        .instruction-list {
+            text-align: left;
+            margin: 20px auto;
+            max-width: 600px;
+            padding-left: 20px;
+        }
+
+        .btn {
+            display: inline-block;
+            background-color: var(--primary-color);
+            color: #fff;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1em;
+            font-weight: 500;
+            cursor: pointer;
+            text-decoration: none;
+            transition: background-color 0.3s, transform 0.2s;
+            margin-top: 10px;
+        }
+        .btn:hover {
+            background-color: #004488;
+            transform: translateY(-2px);
+        }
+        .btn:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .video-container {
+            position: relative;
+            max-width: 640px;
+            margin: 20px auto;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        #video-preview {
+            width: 100%;
+            display: block;
+        }
+
+        .loader {
+            border: 8px solid var(--secondary-color);
+            border-top: 8px solid var(--primary-color);
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error-message {
+            display: none;
+            background-color: var(--error-color);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        .hidden { display: none; }
+
+        #results-container {
+            text-align: left;
+        }
+
+        .frame-container {
+            margin-bottom: 20px;
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 8px;
+        }
+
+        .frame-container img {
+            max-width: 100%;
+            border-radius: 4px;
+        }
+
+    </style>
+</head>
+<body>
+    <header>
+        <div class="logo-container">
+            <img src="https://centras.kz/wp-content/uploads/2023/12/centras-insurance-col-768x268.png" alt="Логотип Сентрас Иншуранс" onerror="this.style.display='none'">
+            <span>Сентрас Иншуранс</span>
+        </div>
+        <nav style="margin-left: auto;">
+            <a href="/index.html" style="margin-right: 20px; text-decoration: none; color: var(--primary-color); font-weight: 500;">Анализ по фото</a>
+            <a href="/video.html" style="text-decoration: none; color: var(--primary-color); font-weight: 500;">Анализ по видео</a>
+        </nav>
+    </header>
+    <main>
+        <section id="screen-start" class="screen active card">
+            <h1>Видео-осмотр Автомобиля</h1>
+            <p>Эта система использует ИИ для анализа видео и обнаружения повреждений. Пожалуйста, следуйте инструкциям для наилучшего результата.</p>
+            <div class="instruction-list">
+                <li><strong>Освещение:</strong> Проводите съемку днем при хорошем, равномерном освещении. Избегайте прямых солнечных лучей и глубоких теней.</li>
+                <li><strong>Движение:</strong> Медленно и плавно обойдите автомобиль по кругу (360°). Держите телефон на расстоянии 1-1.5 метра от кузова.</li>
+                <li><strong>Фокус:</strong> Убедитесь, что автомобиль всегда находится в фокусе.</li>
+                <li><strong>Продолжительность:</strong> Видео должно длиться от 30 до 60 секунд.</li>
+            </div>
+            <button id="start-recording-btn" class="btn">Начать запись</button>
+            <p style="margin-top:15px;">Или <label for="video-upload" style="color:var(--primary-color); cursor:pointer; text-decoration:underline;">загрузите готовое видео</label>.</p>
+            <input type="file" id="video-upload" accept="video/*" class="hidden">
+        </section>
+
+        <section id="screen-recording" class="screen card">
+            <h2>Запись видео</h2>
+            <p>Нажмите "Стоп", когда закончите обход автомобиля.</p>
+            <div class="video-container">
+                <video id="video-preview" playsinline autoplay muted></video>
+            </div>
+            <div class="controls">
+                <button id="stop-recording-btn" class="btn">Стоп</button>
+            </div>
+        </section>
+
+        <section id="screen-processing" class="screen card">
+            <h2>Анализ видео</h2>
+            <p>Пожалуйста, подождите. Наш ИИ анализирует ваше видео. Это может занять несколько минут.</p>
+            <div class="loader"></div>
+            <p id="processing-status"></p>
+        </section>
+
+        <section id="screen-results" class="screen">
+            <h2>Результаты Осмотра</h2>
+            <div id="error-message" class="error-message"></div>
+            <p id="results-summary"></p>
+            <div id="results-container"></div>
+            <div style="text-align: center; margin-top: 30px;">
+                <button onclick="window.location.reload()" class="btn">Начать новый осмотр</button>
+            </div>
+        </section>
+    </main>
+
+    <script src="video-logic.js"></script>
+</body>
+</html>

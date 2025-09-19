@@ -1,3 +1,4 @@
+// File updated to ensure latest version is deployed.
 // Note: 'node-fetch' is a dependency that needs to be installed. const fetch = require('node-fetch');
 
 exports.handler = async (event) => { // 1. Check for POST request if (event.httpMethod !== 'POST') { return { statusCode: 405, body: 'Method Not Allowed' }; }

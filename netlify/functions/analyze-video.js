@@ -13,7 +13,7 @@ try {
         return { statusCode: 400, body: JSON.stringify({ error: 'No video provided.' }) };
     }
 
-    const model = 'gemini-1.5-flash-latest';
+    const model = 'gemini-2.0-flash';
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
     const videoMimeType = video.substring(5, video.indexOf(';'));

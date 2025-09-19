@@ -19,17 +19,16 @@ try {
     const videoMimeType = video.substring(5, video.indexOf(';'));
     const pureBase64 = video.split(',')[1];
 
-    const prompt = `You are an expert AI vehicle damage inspector. Analyze the provided video of a car walkaround (360 degrees). Your task is twofold:
+    const prompt = `You are an expert AI vehicle damage inspector. Analyze the provided video of a car walkaround. Your task is twofold:
 Assess Video Quality: First, determine if the video is suitable for a reliable damage assessment. Check for:
-Good Lighting: Is it daytime with clear, even lighting?
-Clarity: Is the video sharp and in focus?
-Completeness: Does the video show a full 360-degree view of the car?
-Steadiness: Is the camera movement smooth, not jerky or too fast?
-Obstructions: Are there significant glares, shadows, or other things obscuring the view?
-Identify and Detail Damages: If the video quality is acceptable, meticulously identify every single damage on the vehicle. For each unique damage found, provide a detailed report.
-STRICT OUTPUT FORMAT: Your response must be a single JSON object. Do not include any text before or after the JSON. All user-facing strings (like 'reason', 'part', 'type', and 'description') MUST be in Russian.
+1.  **Completeness and Trajectory**: The video MUST show a full, continuous 360-degree walkaround of the car. The movement must be in a single direction (e.g., clockwise). Reject the video if the operator moves back and forth, reverses direction, or fails to capture the entire vehicle.
+2.  **Clarity**: Is the video sharp and in focus? Reject if it's blurry.
+3.  **Steadiness**: Is the camera movement smooth, not jerky or too fast? Reject if the motion is unstable.
+4.  **Lighting & Obstructions**: Is it daytime with clear, even lighting? Reject for significant glares, deep shadows, or if parts of the car are obscured.
+Identify and Detail Damages: If, and only if, the video quality is acceptable, meticulously identify every single damage on the vehicle.
+STRICT OUTPUT FORMAT: Your response must be a single JSON object. Do not include any text before or after the JSON. All user-facing strings MUST be in Russian.
 
-JSON Structure: { "quality_assessment": { "is_acceptable": BOOLEAN, "reason": "STRING" // Если неприемлемо, укажите четкую, краткую причину для пользователя на РУССКОМ ЯЗЫКЕ (например, 'Видео слишком темное.', 'Движение камеры слишком резкое.', 'На видео не видно автомобиль.'). Если приемлемо, это может быть 'Хорошее качество для анализа.' }, "damages": [ // This should be an array of objects. ONLY if quality is acceptable. If not, this is an empty array []. // Each object represents a unique damage. If the same scratch is seen from two angles, it should only appear once. { "id": INTEGER, // A unique ID for each damage, starting from 1. "part": "STRING", // Название детали НА РУССКОМ (e.g., 'Передний бампер', 'Капот', 'Левая передняя дверь') "type": "STRING", // Тип повреждения НА РУССКОМ (e.g., 'Вмятина', 'Царапина', 'Скол', 'Трещина') "description": "STRING", // Детальное описание НА РУССКОМ. "timestamp": FLOAT, // The timestamp in seconds (e.g., 15.3) where the damage is most clearly visible for the first time. "segmentation_polygon": [ { "x": FLOAT, "y": FLOAT }, ... ] // Polygon points (0.0-100.0) on the frame at the given timestamp. } ] } `;
+JSON Structure: { "quality_assessment": { "is_acceptable": BOOLEAN, "reason": "STRING" // Если неприемлемо, укажите четкую, краткую причину на РУССКОМ (например, 'Неполный обход автомобиля.', 'Движение камеры слишком резкое, изображение размыто.', 'Обход автомобиля был выполнен не в одном направлении.'). Если приемлемо, это может быть 'Хорошее качество для анализа.' }, "damages": [ // An empty array [] if quality is not acceptable. // ... остальная структура без изменений ... ] } `;
 
     const payload = {
         contents: [{

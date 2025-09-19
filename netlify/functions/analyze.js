@@ -14,7 +14,7 @@ if (!photos || Object.keys(photos).length === 0) {
 }
 
 // 3. Define API details
-const model = 'gemini-1.5-flash-latest'; // <<<< UPDATED MODEL
+const model = 'gemini-2.0-flash'; // <<<< UPDATED MODEL
 const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 const finalResults = {};
 let totalDamageCounter = 1;

@@ -13,14 +13,34 @@ document.addEventListener('DOMContentLoaded', () => {
     const resultsContainer = document.getElementById('results-container');
     const errorMessage = document.getElementById('error-message');
     const resultsSummary = document.getElementById('results-summary');
+    const timerDisplay = document.getElementById('timer');
 
     let mediaRecorder;
     let recordedChunks = [];
     let stream;
+    let timerInterval;
+    let secondsElapsed = 0;
 
     const showScreen = (screenName) => {
         Object.values(screens).forEach(s => s.classList.remove('active'));
         screens[screenName].classList.add('active');
+    };
+
+    const formatTime = (seconds) => {
+        const mins = Math.floor(seconds / 60).toString().padStart(2, '0');
+        const secs = (seconds % 60).toString().padStart(2, '0');
+        return `${mins}:${secs}`;
+    };
+
+    const stopRecording = () => {
+        if (mediaRecorder && mediaRecorder.state === 'recording') {
+            mediaRecorder.stop();
+        }
+        if (stream) {
+            stream.getTracks().forEach(track => track.stop());
+        }
+        clearInterval(timerInterval);
+        showScreen('processing');
     };
 
     startRecordingBtn.addEventListener('click', async () => {
@@ -45,6 +65,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 reader.readAsDataURL(blob);
             };
             mediaRecorder.start();
+
+            secondsElapsed = 0;
+            timerDisplay.textContent = formatTime(secondsElapsed);
+            timerInterval = setInterval(() => {
+                secondsElapsed++;
+                timerDisplay.textContent = formatTime(secondsElapsed);
+                if (secondsElapsed >= 60) {
+                    stopRecording();
+                }
+            }, 1000);
+
         } catch (err) {
             console.error("Error accessing camera:", err);
             showErrorMessage("Не удалось получить доступ к камере. Пожалуйста, проверьте разрешения.");
@@ -53,13 +84,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     stopRecordingBtn.addEventListener('click', () => {
-        if (mediaRecorder && mediaRecorder.state === 'recording') {
-            mediaRecorder.stop();
-        }
-        if (stream) {
-            stream.getTracks().forEach(track => track.stop());
-        }
-        showScreen('processing');
+        stopRecording();
     });
 
     async function analyzeVideo(videoBase64) {

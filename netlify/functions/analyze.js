@@ -1,18 +1,54 @@
 // File updated to ensure latest version is deployed.
-// Note: 'node-fetch' is a dependency that needs to be installed. const fetch = require('node-fetch');
+// Note: 'node-fetch' is a dependency that needs to be installed.
+const fetch = require('node-fetch');
 
-exports.handler = async (event) => { // 1. Check for POST request if (event.httpMethod !== 'POST') { return { statusCode: 405, body: 'Method Not Allowed' }; }
+exports.handler = async (event) => {
+    // Define CORS headers for reuse to handle cross-origin requests
+    const corsHeaders = {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    };
 
-try { // 2. Extract data and API key const { photos } = JSON.parse(event.body); const apiKey = process.env.GEMINI_API_KEY;
+    // Handle preflight OPTIONS request sent by browsers
+    if (event.httpMethod === 'OPTIONS') {
+        return {
+            statusCode: 204, // No Content
+            headers: corsHeaders,
+            body: '',
+        };
+    }
 
-if (!apiKey) {
-  console.error('GEMINI_API_KEY is not set in environment variables.');
-  return { statusCode: 500, body: JSON.stringify({ error: 'Server configuration error: API key is missing.' }) };
-}
+    // 1. Check for POST request
+    if (event.httpMethod !== 'POST') {
+        return {
+            statusCode: 405,
+            headers: corsHeaders,
+            body: 'Method Not Allowed'
+        };
+    }
 
-if (!photos || Object.keys(photos).length === 0) {
-    return { statusCode: 400, body: JSON.stringify({ error: 'No photos provided for analysis.' })};
-}
+    try {
+        // 2. Extract data and API key
+        const { photos } = JSON.parse(event.body);
+        const apiKey = process.env.GEMINI_API_KEY;
+
+        if (!apiKey) {
+            console.error('GEMINI_API_KEY is not set in environment variables.');
+            return {
+                statusCode: 500,
+                headers: corsHeaders,
+                body: JSON.stringify({ error: 'Server configuration error: API key is missing.' })
+            };
+        }
+
+        if (!photos || Object.keys(photos).length === 0) {
+            return {
+                statusCode: 400,
+                headers: corsHeaders,
+                body: JSON.stringify({ error: 'No photos provided for analysis.' })
+            };
+        }
 
 // 3. Define API details
 const model = 'gemini-2.0-flash'; // <<<< UPDATED MODEL
@@ -99,12 +135,22 @@ for (const [angle, base64Image] of Object.entries(photos)) {
     }
 }
 
-return {
-  statusCode: 200,
-  headers: {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*', // Allow requests from any origin
-  },
-  body: JSON.stringify(finalResults),
+        return {
+            statusCode: 200,
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders,
+            },
+            body: JSON.stringify(finalResults),
+        };
+    } catch (error) {
+        console.error('Error in Netlify function:', error);
+        return {
+            statusCode: 500,
+            headers: corsHeaders,
+            body: JSON.stringify({
+                error: error.message
+            }),
+        };
+    }
 };
-} catch (error) { console.error('Error in Netlify function:', error); return { statusCode: 500, body: JSON.stringify({ error: error.message }), }; } };

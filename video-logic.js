@@ -162,12 +162,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             // Extract frames
-            const userFrame = await extractFrame(userVideoBlob, USER_VIDEO_DURATION / 2);
+            const userFramePromise = extractFrame(userVideoBlob, USER_VIDEO_DURATION / 2);
             const carDuration = carSecondsElapsed;
-            const carFrame1_img = await extractFrame(carVideoBlob, carDuration * 0.1);
-            const carFrame2_img = await extractFrame(carVideoBlob, carDuration * 0.4);
-            const carFrame3_img = await extractFrame(carVideoBlob, carDuration * 0.7);
-            const carFrame4_img = await extractFrame(carVideoBlob, carDuration * 0.95);
+            const carFrame1_promise = extractFrame(carVideoBlob, carDuration * 0.1);
+            const carFrame2_promise = extractFrame(carVideoBlob, carDuration * 0.4);
+            const carFrame3_promise = extractFrame(carVideoBlob, carDuration * 0.7);
+            const carFrame4_promise = extractFrame(carVideoBlob, carDuration * 0.95);
+
+            const [userFrame, carFrame1_img, carFrame2_img, carFrame3_img, carFrame4_img] = await Promise.all([
+                userFramePromise, carFrame1_promise, carFrame2_promise, carFrame3_promise, carFrame4_promise
+            ]);
 
             // Display frames and video
             userPhotoResult.src = userFrame;
@@ -199,6 +203,7 @@ document.addEventListener('DOMContentLoaded', () => {
             video.playsInline = true;
             const canvas = document.createElement('canvas');
             const context = canvas.getContext('2d');
+            const videoUrl = URL.createObjectURL(videoBlob);
 
             video.onloadedmetadata = () => {
                 video.currentTime = timeInSeconds;
@@ -208,16 +213,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 canvas.width = video.videoWidth;
                 canvas.height = video.videoHeight;
                 context.drawImage(video, 0, 0, canvas.width, canvas.height);
-                resolve(canvas.toDataURL());
-                URL.revokeObjectURL(video.src);
+                resolve(canvas.toDataURL('image/jpeg'));
+                URL.revokeObjectURL(videoUrl);
             };
 
             video.onerror = (e) => {
                 reject(new Error('Failed to load video for frame extraction.'));
-                URL.revokeObjectURL(video.src);
+                URL.revokeObjectURL(videoUrl);
             };
 
-            video.src = URL.createObjectURL(videoBlob);
+            video.src = videoUrl;
         });
     }
 

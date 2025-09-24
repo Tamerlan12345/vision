@@ -184,8 +184,17 @@
             <button id="start-recording-btn" class="btn">Начать запись</button>
         </section>
 
+        <section id="screen-user-video" class="screen card">
+            <h2>Шаг 1: Запись видео пользователя</h2>
+            <p>Пожалуйста, смотрите в камеру. Запись начнется автоматически и продлится 5 секунд.</p>
+            <div class="video-container">
+                <video id="user-video-preview" playsinline autoplay muted></video>
+            </div>
+            <p id="user-video-timer" style="font-size: 1.5em; font-weight: 700; color: var(--primary-color);"></p>
+        </section>
+
         <section id="screen-recording" class="screen card">
-            <h2>Запись видео</h2>
+            <h2>Шаг 2: Запись видео автомобиля</h2>
             <p>Нажмите "Стоп", когда закончите обход автомобиля.</p>
             <p id="timer" style="font-size: 1.5em; font-weight: 700; color: var(--primary-color);">00:00</p>
             <div class="video-container">
@@ -206,8 +215,50 @@
         <section id="screen-results" class="screen">
             <h2>Результаты Осмотра</h2>
             <div id="error-message" class="error-message"></div>
-            <p id="results-summary"></p>
-            <div id="results-container"></div>
+
+            <div id="results-content" class="hidden">
+                 <div class="card" style="margin-bottom: 20px;">
+                    <h3>Фотография пользователя</h3>
+                    <p>Это кадр из видео, записанного в начале процесса.</p>
+                    <div class="frame-container" style="max-width: 320px; margin: auto;">
+                        <img id="user-photo-result" src="" alt="Фото пользователя">
+                    </div>
+                </div>
+
+                <div class="card" style="margin-bottom: 20px;">
+                     <h3>Видео осмотра и ключевые кадры</h3>
+                     <p>Полное видео осмотра доступно ниже. Мы также выделили ключевые кадры для вашего удобства.</p>
+                     <div class="video-container">
+                         <video id="result-video" controls style="width:100%;"></video>
+                     </div>
+                     <h4 style="margin-top: 20px;">Ключевые кадры автомобиля:</h4>
+                     <div style="display: flex; justify-content: space-around; flex-wrap: wrap;">
+                         <div class="frame-container" style="text-align: center;">
+                             <p><strong>Вид 1</strong></p>
+                             <img id="car-frame-1" src="" alt="Кадр автомобиля 1" style="max-width: 150px;">
+                         </div>
+                         <div class="frame-container" style="text-align: center;">
+                             <p><strong>Вид 2</strong></p>
+                             <img id="car-frame-2" src="" alt="Кадр автомобиля 2" style="max-width: 150px;">
+                         </div>
+                         <div class="frame-container" style="text-align: center;">
+                              <p><strong>Вид 3</strong></p>
+                             <img id="car-frame-3" src="" alt="Кадр автомобиля 3" style="max-width: 150px;">
+                         </div>
+                         <div class="frame-container" style="text-align: center;">
+                              <p><strong>Вид 4</strong></p>
+                             <img id="car-frame-4" src="" alt="Кадр автомобиля 4" style="max-width: 150px;">
+                         </div>
+                     </div>
+                </div>
+
+                <div class="card">
+                    <h3>Результаты AI анализа</h3>
+                    <p id="results-summary"></p>
+                    <div id="results-container" style="text-align: left;"></div>
+                </div>
+            </div>
+
             <div style="text-align: center; margin-top: 30px;">
                 <button onclick="window.location.reload()" class="btn">Начать новый осмотр</button>
             </div>

@@ -21,7 +21,7 @@ exports.handler = async (event) => {
         }
         console.log('Successfully parsed video data.');
 
-        const model = 'gemini-1.5-flash';
+        const model = 'gemini-1.5-flash-latest';
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
     const videoMimeType = video.substring(5, video.indexOf(';'));

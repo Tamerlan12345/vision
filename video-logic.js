@@ -258,9 +258,20 @@ document.addEventListener('DOMContentLoaded', () => {
             processingStatus.textContent = 'Анализ видео... Это может занять несколько минут.';
 
             if (!response.ok) {
-                const err = await response.json();
-                // Prefer the specific client-facing error message if it exists
-                throw new Error(err['client-facing-error'] || err.error || 'Ошибка сервера');
+                let errorText = `Ошибка сервера: ${response.status} ${response.statusText}`;
+                try {
+                    // Try to parse the error as JSON
+                    const err = await response.json();
+                    errorText = err['client-facing-error'] || err.error || JSON.stringify(err);
+                } catch (e) {
+                    // If JSON parsing fails, use the raw text response
+                    try {
+                        errorText = await response.text();
+                    } catch (textErr) {
+                        // Fallback if reading as text also fails
+                    }
+                }
+                throw new Error(errorText);
             }
 
             const result = await response.json();

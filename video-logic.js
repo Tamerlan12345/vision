@@ -239,7 +239,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (!response.ok) {
                 const err = await response.json();
-                throw new Error(err.error || 'Ошибка сервера');
+                // Prefer the specific client-facing error message if it exists
+                throw new Error(err['client-facing-error'] || err.error || 'Ошибка сервера');
             }
 
             const result = await response.json();

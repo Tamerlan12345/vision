@@ -50,17 +50,22 @@ JSON Structure: { "quality_assessment": { "is_acceptable": BOOLEAN, "reason": "S
 
     if (!response.ok) {
         const errorBody = await response.text();
-        console.error('API Error:', response.status, errorBody);
-        throw new Error('Failed to get a response from the AI model.');
+        console.error('Gemini API Error:', response.status, errorBody);
+        const clientMessage = `AI model failed with status: ${response.status}. Please try again later.`;
+        return { statusCode: 502, body: JSON.stringify({ error: 'Failed to get a response from the AI model.', "client-facing-error": clientMessage }) };
     }
 
     const result = await response.json();
 
     if (!result.candidates || result.candidates.length === 0) {
-        console.warn('Response from API was blocked or empty.', result.promptFeedback);
+        const feedback = result.promptFeedback ? JSON.stringify(result.promptFeedback) : 'No feedback available.';
+        console.warn('Response from API was blocked or empty. Feedback:', feedback);
          return {
-            statusCode: 500,
-            body: JSON.stringify({ error: 'The AI model could not process the video. This might be due to a safety filter. Please try a different video.' }),
+            statusCode: 422, // Unprocessable Entity
+            body: JSON.stringify({
+                error: 'The AI model returned no content, possibly due to safety filters or other content restrictions.',
+                "client-facing-error": 'Видео не может быть обработано. Это может быть связано с фильтрами безопасности. Пожалуйста, попробуйте другое видео.'
+            }),
         };
     }
 
@@ -75,14 +80,26 @@ JSON Structure: { "quality_assessment": { "is_acceptable": BOOLEAN, "reason": "S
         };
     } catch(e) {
         console.error("JSON Parsing Error:", e, "Received text:", analysisText);
-        return { statusCode: 500, body: JSON.stringify({ error: 'Failed to parse the AI response.' }) };
+        return {
+            statusCode: 500,
+            body: JSON.stringify({
+                error: 'Failed to parse the AI response.',
+                "client-facing-error": 'Не удалось обработать ответ от AI. Формат данных неверен.'
+            })
+        };
     }
 
 } catch (error) {
     console.error('Error in Netlify function:', error);
+    // Check for timeout error specifically if possible (depends on environment)
+    const isTimeout = error.message.includes('timed out') || error.constructor.name === 'TimeoutError';
+    const clientMessage = isTimeout
+        ? 'Анализ видео занял слишком много времени. Попробуйте записать видео покороче.'
+        : 'Произошла внутренняя ошибка сервера. Пожалуйста, попробуйте позже.';
+
     return {
         statusCode: 500,
-        body: JSON.stringify({ error: error.message }),
+        body: JSON.stringify({ error: error.message, "client-facing-error": clientMessage }),
     };
 }
 };

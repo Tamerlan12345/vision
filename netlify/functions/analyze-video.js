@@ -64,23 +64,21 @@ JSON Structure: { "quality_assessment": { "is_acceptable": BOOLEAN, "reason": "S
 
     if (!response.ok) {
         const errorBody = await response.text();
-        console.error('Gemini API Error:', response.status, errorBody);
-        const clientMessage = `AI model failed with status: ${response.status}. Please try again later.`;
+        const clientMessage = `Gemini API Error (Status: ${response.status}): ${errorBody}`;
         return { statusCode: 502, body: JSON.stringify({ error: 'Failed to get a response from the AI model.', "client-facing-error": clientMessage }) };
     }
 
     const result = await response.json();
-    console.log('Received raw response from Gemini API:', JSON.stringify(result, null, 2));
 
 
     if (!result.candidates || result.candidates.length === 0) {
         const feedback = result.promptFeedback ? JSON.stringify(result.promptFeedback) : 'No feedback available.';
-        console.warn('Response from API was blocked or empty. Feedback:', feedback);
+        const clientMessage = `AI model returned no content. This is often due to safety filters. Feedback: ${feedback}`;
          return {
-            statusCode: 422, // Unprocessable Entity
+            statusCode: 422,
             body: JSON.stringify({
-                error: 'The AI model returned no content, possibly due to safety filters or other content restrictions.',
-                "client-facing-error": 'Видео не может быть обработано. Это может быть связано с фильтрами безопасности. Пожалуйста, попробуйте другое видео.'
+                error: 'The AI model returned no content, possibly due to safety filters.',
+                "client-facing-error": clientMessage
             }),
         };
     }
@@ -95,12 +93,12 @@ JSON Structure: { "quality_assessment": { "is_acceptable": BOOLEAN, "reason": "S
             body: JSON.stringify({ analysis: analysisJson }),
         };
     } catch(e) {
-        console.error("JSON Parsing Error:", e, "Received text:", analysisText);
+        const clientMessage = `Failed to parse AI response as JSON. Error: ${e.message}. Received text: "${analysisText.substring(0, 100)}..."`;
         return {
             statusCode: 500,
             body: JSON.stringify({
                 error: 'Failed to parse the AI response.',
-                "client-facing-error": 'Не удалось обработать ответ от AI. Формат данных неверен.'
+                "client-facing-error": clientMessage
             })
         };
     }

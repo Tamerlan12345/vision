@@ -258,20 +258,24 @@ document.addEventListener('DOMContentLoaded', () => {
             processingStatus.textContent = 'Анализ видео... Это может занять несколько минут.';
 
             if (!response.ok) {
-                let errorText = `Ошибка сервера: ${response.status} ${response.statusText}`;
+                // Initialize a detailed error message with the HTTP status
+                let detailedError = `HTTP Status: ${response.status} ${response.statusText}\n`;
                 try {
-                    // Try to parse the error as JSON
-                    const err = await response.json();
-                    errorText = err['client-facing-error'] || err.error || JSON.stringify(err);
-                } catch (e) {
-                    // If JSON parsing fails, use the raw text response
+                    // Try to get the response body as text
+                    const errorBody = await response.text();
+
+                    // Try to parse the text as JSON for a more structured error
                     try {
-                        errorText = await response.text();
-                    } catch (textErr) {
-                        // Fallback if reading as text also fails
+                        const errJson = JSON.parse(errorBody);
+                        detailedError += `Error Details: ${errJson['client-facing-error'] || errJson.error || JSON.stringify(errJson)}`;
+                    } catch (jsonError) {
+                        // If it's not JSON, append the raw text (which could be HTML or plain text)
+                        detailedError += `Response Body: ${errorBody}`;
                     }
+                } catch (bodyError) {
+                    detailedError += 'Could not read response body.';
                 }
-                throw new Error(errorText);
+                throw new Error(detailedError);
             }
 
             const result = await response.json();

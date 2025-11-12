@@ -109,7 +109,16 @@ document.addEventListener('DOMContentLoaded', () => {
     async function startCarRecording() {
         showScreen('recording');
         try {
-            currentStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+            // Constrain video resolution to reduce file size
+            const constraints = {
+                video: {
+                    facingMode: 'environment',
+                    width: { ideal: 640 },
+                    height: { ideal: 480 }
+                },
+                audio: false
+            };
+            currentStream = await navigator.mediaDevices.getUserMedia(constraints);
             carVideoPreview.srcObject = currentStream;
 
             carMediaRecorder = new MediaRecorder(currentStream);
@@ -155,6 +164,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const userVideoBlob = new Blob(userChunks, { type: 'video/webm' });
         const carVideoBlob = new Blob(carChunks, { type: 'video/webm' });
+
+        // Check video size before processing
+        const MAX_SIZE_MB = 4.5;
+        if (carVideoBlob.size > MAX_SIZE_MB * 1024 * 1024) {
+            showErrorMessage(`Видео слишком большое (${(carVideoBlob.size / 1024 / 1024).toFixed(1)}MB). Пожалуйста, запишите видео короче ${MAX_SIZE_MB}MB.`);
+            // still show the frames and video player, just don't analyze
+            showScreen('results');
+            resultsContent.classList.remove('hidden');
+            resultsSummary.textContent = "Анализ отменен из-за размера видео.";
+            return;
+        }
 
         // Free up memory
         userChunks = [];

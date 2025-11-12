@@ -1,19 +1,27 @@
 const fetch = require('node-fetch');
 
-exports.handler = async (event) => { if (event.httpMethod !== 'POST') { return { statusCode: 405, body: 'Method Not Allowed' }; }
-
-try {
-    const { video } = JSON.parse(event.body);
-    const apiKey = process.env.GEMINI_API_KEY;
-
-    if (!apiKey) {
-        return { statusCode: 500, body: JSON.stringify({ error: 'Server configuration error: API key is missing.' }) };
-    }
-    if (!video) {
-        return { statusCode: 400, body: JSON.stringify({ error: 'No video provided.' }) };
+exports.handler = async (event) => {
+    console.log('Function invoked.');
+    if (event.httpMethod !== 'POST') {
+        return { statusCode: 405, body: 'Method Not Allowed' };
     }
 
-    const model = 'gemini-2.0-flash';
+    try {
+        console.log('Parsing event body...');
+        const { video } = JSON.parse(event.body);
+        const apiKey = process.env.GEMINI_API_KEY;
+
+        if (!apiKey) {
+            console.error('API key is missing.');
+            return { statusCode: 500, body: JSON.stringify({ error: 'Server configuration error: API key is missing.' }) };
+        }
+        if (!video) {
+            console.error('No video data provided in the request.');
+            return { statusCode: 400, body: JSON.stringify({ error: 'No video provided.' }) };
+        }
+        console.log('Successfully parsed video data.');
+
+        const model = 'gemini-1.5-flash';
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
     const videoMimeType = video.substring(5, video.indexOf(';'));
@@ -42,6 +50,12 @@ JSON Structure: { "quality_assessment": { "is_acceptable": BOOLEAN, "reason": "S
         }
     };
 
+    console.log(`Video MIME type: ${videoMimeType}`);
+    // Temporarily log the payload MINUS the video data for security
+    const payloadForLogging = { ...payload, contents: [{ parts: [{ text: "prompt..." }, { inline_data: { mime_type: videoMimeType, data: "video_data_omitted" } }] }] };
+    console.log('Sending payload to Gemini API:', JSON.stringify(payloadForLogging, null, 2));
+
+
     const response = await fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -56,6 +70,8 @@ JSON Structure: { "quality_assessment": { "is_acceptable": BOOLEAN, "reason": "S
     }
 
     const result = await response.json();
+    console.log('Received raw response from Gemini API:', JSON.stringify(result, null, 2));
+
 
     if (!result.candidates || result.candidates.length === 0) {
         const feedback = result.promptFeedback ? JSON.stringify(result.promptFeedback) : 'No feedback available.';

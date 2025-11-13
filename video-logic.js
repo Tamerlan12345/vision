@@ -234,25 +234,73 @@ document.addEventListener('DOMContentLoaded', () => {
     function extractFrame(videoBlob, timeInSeconds) {
         return new Promise((resolve, reject) => {
             const video = document.createElement('video');
-            video.muted = true;
-            video.playsInline = true;
             const canvas = document.createElement('canvas');
             const context = canvas.getContext('2d');
             const videoUrl = URL.createObjectURL(videoBlob);
 
-            video.onloadedmetadata = () => { video.currentTime = timeInSeconds; };
-            video.onseeked = () => {
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-                context.drawImage(video, 0, 0, canvas.width, canvas.height);
-                resolve(canvas.toDataURL('image/jpeg'));
-                URL.revokeObjectURL(videoUrl);
-            };
-            video.onerror = () => {
-                reject(new Error('Failed to load video for frame extraction.'));
-                URL.revokeObjectURL(videoUrl);
-            };
+            // Configure video element
+            video.muted = true;
+            video.playsInline = true;
+            video.preload = 'metadata';
             video.src = videoUrl;
+
+            let cleanedUp = false;
+
+            const cleanup = () => {
+                if (cleanedUp) return;
+                cleanedUp = true;
+                // Revoke the object URL to prevent memory leaks
+                URL.revokeObjectURL(videoUrl);
+                // Remove event listeners to avoid orphaned callbacks
+                video.onloadedmetadata = null;
+                video.onseeked = null;
+                video.onerror = null;
+                video.remove(); // Remove the video element from memory
+                canvas.remove(); // Remove the canvas element
+            };
+
+            video.onloadedmetadata = () => {
+                // Set the time only after metadata is loaded
+                if (timeInSeconds > video.duration) {
+                    console.warn(`Seek time (${timeInSeconds}) is greater than video duration (${video.duration}). Clamping to duration.`);
+                    video.currentTime = video.duration - 0.1; // Seek to just before the end
+                } else {
+                    video.currentTime = timeInSeconds;
+                }
+            };
+
+            video.onseeked = () => {
+                // Ensure video dimensions are valid before drawing
+                if (video.videoWidth > 0 && video.videoHeight > 0) {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    const dataUrl = canvas.toDataURL('image/jpeg');
+                    resolve(dataUrl);
+                } else {
+                    // This can happen on some browsers if the frame is not ready
+                    reject(new Error('Failed to get valid video dimensions for frame extraction.'));
+                }
+                cleanup();
+            };
+
+            video.onerror = (e) => {
+                // Provide more specific error information
+                let errorMsg = 'Failed to load video for frame extraction.';
+                if (video.error) {
+                    errorMsg += ` Code: ${video.error.code}, Message: ${video.error.message}`;
+                }
+                reject(new Error(errorMsg));
+                cleanup();
+            };
+
+            // Safety timeout in case the events never fire
+            setTimeout(() => {
+                if (!cleanedUp) {
+                    reject(new Error('Frame extraction timed out.'));
+                    cleanup();
+                }
+            }, 10000); // 10 seconds timeout
         });
     }
 

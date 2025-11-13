@@ -51,8 +51,8 @@ exports.handler = async (event) => {
         }
 
 // 3. Define API details
-const model = 'gemini-2.0-flash'; // <<<< UPDATED MODEL
-const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+const model = 'gemini-1.5-flash-latest'; // <<<< UPDATED MODEL
+const apiUrl = `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${apiKey}`;
 const finalResults = {};
 let totalDamageCounter = 1;
 

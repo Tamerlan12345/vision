@@ -46,10 +46,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const getSupportedMimeType = () => {
         const possibleTypes = [
-            'video/mp4; codecs="avc1.42E01E, mp4a.40.2"',
-            'video/mp4',
             'video/webm; codecs="vp8, opus"',
             'video/webm',
+            'video/mp4; codecs="avc1.42E01E, mp4a.40.2"',
+            'video/mp4',
         ];
         return possibleTypes.find(type => MediaRecorder.isTypeSupported(type)) || 'video/webm';
     };

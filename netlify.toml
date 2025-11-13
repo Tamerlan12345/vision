@@ -7,7 +7,6 @@
 
 # Background function for long-running processing
 [functions."process-video-background"]
-  schedule = "@asap" # As Soon As Possible execution
   timeout = 900 # 15 minutes, max for background functions
 
 # Standard synchronous function for status checks

@@ -31,12 +31,20 @@ document.addEventListener('DOMContentLoaded', () => {
     const resultsSummary = document.getElementById('results-summary');
     const resultsContainer = document.getElementById('results-container');
     const errorMessage = document.getElementById('error-message');
+    const errorText = document.getElementById('error-text');
+    const errorDetails = document.getElementById('error-details');
     const processingStatus = document.getElementById('processing-status');
 
     // State variables
     let userMediaRecorder, carMediaRecorder;
     let userChunks = [], carChunks = [];
     let currentStream;
+
+    // Expose for testing
+    window.testing = {
+        get a_userMediaRecorder() { return userMediaRecorder; },
+        get a_carMediaRecorder() { return carMediaRecorder; }
+    };
     let carTimerInterval;
     let carSecondsElapsed = 0;
     const USER_VIDEO_DURATION = 5; // 5 seconds
@@ -46,15 +54,15 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Core Functions ---
 
     const getSupportedMimeType = () => {
-        // With server-side conversion, we can be more lenient.
-        // Let the browser pick the best it supports.
+        // Prioritize MP4 for broader compatibility, especially on iOS.
+        // Safari on iOS often records in a WebM container that is not easily parsable by FFMPEG on the server.
         const possibleTypes = [
-            'video/mp4; codecs="avc1.42E01E, mp4a.40.2"',
             'video/mp4',
             'video/webm; codecs="vp8, opus"',
             'video/webm',
         ];
-        return possibleTypes.find(type => MediaRecorder.isTypeSupported(type)) || 'video/webm';
+        // Return the first supported type, or an empty string to let the browser decide.
+        return possibleTypes.find(type => MediaRecorder.isTypeSupported(type)) || '';
     };
 
     const showScreen = (screenName) => {
@@ -96,7 +104,17 @@ document.addEventListener('DOMContentLoaded', () => {
     async function startUserRecording() {
         showScreen('userVideo');
         try {
-            currentStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+            // Attempt to get the user-facing camera, with a fallback to any camera
+            try {
+                currentStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+            } catch (err) {
+                if (err.name === 'NotFoundError' || err.name === 'OverconstrainedError') {
+                    console.warn("User camera not found, trying any camera...");
+                    currentStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                } else {
+                    throw err;
+                }
+            }
             userVideoPreview.srcObject = currentStream;
 
             userMediaRecorder = new MediaRecorder(currentStream, { mimeType });
@@ -119,14 +137,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (userSecondsLeft <= 0) {
                     clearInterval(userTimer);
                     if (userMediaRecorder.state === 'recording') {
+                        console.log('Timer elapsed. Stopping user video recording.');
                         userMediaRecorder.stop();
                     }
                 }
             }, 1000);
 
         } catch (err) {
-            console.error("Error accessing front camera:", err);
-            showErrorMessage("Не удалось получить доступ к фронтальной камере. Пожалуйста, проверьте разрешения.");
+            console.error("Critical error in startUserRecording:", err);
+            let errorMessage = "Не удалось получить доступ к фронтальной камере. Пожалуйста, проверьте разрешения.";
+            if (err.name) {
+                errorMessage += ` (Ошибка: ${err.name})`;
+            }
+            console.error("Error accessing front camera:", err.name, err.message);
+            showErrorMessage(errorMessage);
             showScreen('start');
         }
     }
@@ -134,15 +158,19 @@ document.addEventListener('DOMContentLoaded', () => {
     async function startCarRecording() {
         showScreen('recording');
         try {
-            const constraints = {
-                video: {
-                    facingMode: 'environment',
-                    width: { ideal: 640 },
-                    height: { ideal: 480 }
-                },
-                audio: false
-            };
-            currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+             // Attempt to get the environment-facing camera, with a fallback
+            let streamConstraints = { video: { facingMode: 'environment' }, audio: false };
+            try {
+                currentStream = await navigator.mediaDevices.getUserMedia(streamConstraints);
+            } catch (err) {
+                if (err.name === 'NotFoundError' || err.name === 'OverconstrainedError') {
+                    console.warn("Environment camera not found, trying any camera...");
+                    streamConstraints = { video: true, audio: false }; // Fallback
+                    currentStream = await navigator.mediaDevices.getUserMedia(streamConstraints);
+                } else {
+                    throw err;
+                }
+            }
             carVideoPreview.srcObject = currentStream;
 
             carMediaRecorder = new MediaRecorder(currentStream, { mimeType });
@@ -164,8 +192,12 @@ document.addEventListener('DOMContentLoaded', () => {
             }, 1000);
 
         } catch (err) {
-            console.error("Error accessing rear camera:", err);
-            showErrorMessage("Не удалось получить доступ к основной камере. Пожалуйста, проверьте разрешения.");
+            let errorMessage = "Не удалось получить доступ к основной камере. Пожалуйста, проверьте разрешения.";
+            if (err.name) {
+                errorMessage += ` (Ошибка: ${err.name})`;
+            }
+            console.error("Error accessing rear camera:", err.name, err.message);
+            showErrorMessage(errorMessage);
             showScreen('start');
         }
     }
@@ -313,12 +345,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({ video: videoBase64 }),
             });
 
+            // Even if the request is "ok", it might contain an error message
+            const responseBody = await response.text();
             if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`Ошибка загрузки: ${response.status} ${errorText}`);
+                // Construct a detailed error message
+                throw new Error(`Ошибка загрузки: ${response.status} ${response.statusText}. Ответ сервера: ${responseBody}`);
             }
 
-            const { jobId } = await response.json();
+            const { jobId } = JSON.parse(responseBody);
             if (!jobId) {
                 throw new Error('Не удалось получить ID задачи для анализа.');
             }
@@ -334,19 +368,25 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function pollStatus(jobId) {
-        // Clear any existing timer
         if (pollingInterval) clearInterval(pollingInterval);
 
         pollingInterval = setInterval(async () => {
             try {
                 const response = await fetch(`/.netlify/functions/check-status?jobId=${jobId}`);
+                 const responseBody = await response.text();
+
                 if (!response.ok) {
-                    // Stop polling on server error
                     clearInterval(pollingInterval);
-                    throw new Error(`Ошибка проверки статуса: ${response.status}`);
+                    // Try to parse for more details, but fall back to text
+                    let errorDetails = responseBody;
+                    try {
+                        const errorJson = JSON.parse(responseBody);
+                        errorDetails = errorJson.error || JSON.stringify(errorJson);
+                    } catch(e) { /* Ignore parsing error */ }
+                    throw new Error(`Ошибка проверки статуса: ${response.status} ${response.statusText}. Детали: ${errorDetails}`);
                 }
 
-                const data = await response.json();
+                const data = JSON.parse(responseBody);
 
                 switch (data.status) {
                     case 'pending':
@@ -355,7 +395,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     case 'processing':
                         let stageText = 'Обработка видео...';
                         if (data.stage === 'converting') stageText = 'Конвертация формата видео...';
-                        if (data.stage === 'analyzing') stageText = 'Анализ повреждений...';
+                        else if (data.stage === 'analyzing') stageText = 'Анализ повреждений...';
+                        else if (data.stage) stageText = `Шаг: ${data.stage}...`;
                         processingStatus.textContent = stageText;
                         break;
                     case 'complete':
@@ -366,7 +407,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         break;
                     case 'error':
                         clearInterval(pollingInterval);
-                        throw new Error(data.message || 'Произошла неизвестная ошибка на сервере.');
+                        // Use the new client-facing error if available
+                        const errorMessage = data['client-facing-error'] || data.message || 'Произошла неизвестная ошибка на сервере.';
+                        throw new Error(errorMessage);
                 }
             } catch (error) {
                 clearInterval(pollingInterval);
@@ -408,8 +451,28 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function showErrorMessage(message) {
-        errorMessage.textContent = `Ошибка: ${message}`;
+    function showErrorMessage(fullMessage) {
+        let mainMessage = 'Произошла ошибка';
+        let details = fullMessage;
+
+        // Try to parse structured error messages from the server
+        const detailMarker = '. Ответ сервера:';
+        const statusMarker = '. Детали:';
+        if (fullMessage.includes(detailMarker)) {
+            const parts = fullMessage.split(detailMarker);
+            mainMessage = parts[0];
+            details = parts[1];
+        } else if (fullMessage.includes(statusMarker)) {
+             const parts = fullMessage.split(statusMarker);
+            mainMessage = parts[0];
+            details = parts[1];
+        }
+
+        console.error(`Displaying error: ${mainMessage}`, `Details: ${details}`);
+
+        errorText.textContent = mainMessage;
+        errorDetails.textContent = details;
         errorMessage.style.display = 'block';
+        resultsContent.classList.add('hidden'); // Hide results content on error
     }
 });

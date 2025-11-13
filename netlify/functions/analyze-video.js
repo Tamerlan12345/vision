@@ -25,7 +25,15 @@ exports.handler = async (event) => {
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
     const videoMimeType = video.substring(5, video.indexOf(';'));
-    const pureBase64 = video.split(',')[1];
+
+    // Robustly find the Base64 data, ignoring commas in the MIME type parameters.
+    const base64DataMarker = ';base64,';
+    const dataStartIndex = video.indexOf(base64DataMarker);
+    if (dataStartIndex === -1) {
+      console.error('Invalid Data URL: ;base64, marker not found.');
+      return { statusCode: 400, body: JSON.stringify({ "client-facing-error": "Invalid video data format received." }) };
+    }
+    const pureBase64 = video.substring(dataStartIndex + base64DataMarker.length);
 
     const prompt = `You are an expert AI vehicle damage inspector. Analyze the provided video of a car walkaround. Your task is twofold:
 Assess Video Quality: First, determine if the video is suitable for a reliable damage assessment. Check for:

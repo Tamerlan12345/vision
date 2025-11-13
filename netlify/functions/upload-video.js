@@ -1,5 +1,4 @@
 
-const { v4: uuidv4 } = require('uuid');
 const { getStore } = require('@netlify/blobs');
 
 exports.handler = async (event) => {
@@ -8,6 +7,9 @@ exports.handler = async (event) => {
     }
 
     try {
+        // Dynamically import uuid
+        const { v4: uuidv4 } = await import('uuid');
+
         const { video: videoBase64 } = JSON.parse(event.body);
         if (!videoBase64) {
             return { statusCode: 400, body: JSON.stringify({ error: 'No video data provided.' }) };

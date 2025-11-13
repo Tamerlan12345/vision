@@ -1,5 +1,5 @@
 
-const { getStore } = require('@netlify/blobs');
+const { getStore, connectLambda } = require('@netlify/blobs');
 
 exports.handler = async (event) => {
     if (event.httpMethod !== 'GET') {
@@ -12,6 +12,7 @@ exports.handler = async (event) => {
     }
 
     try {
+        connectLambda(event);
         const statusStore = getStore('statuses');
         const status = await statusStore.get(jobId, { type: 'json' });
 

@@ -40,7 +40,7 @@ Assess Video Quality: First, determine if the video is suitable for a reliable d
 Identify and Detail Damages: If, and only if, the video quality is acceptable, meticulously identify every single damage on the vehicle.
 STRICT OUTPUT FORMAT: Your response must be a single JSON object. Do not include any text before or after the JSON. All user-facing strings MUST be in Russian.
 
-JSON Structure: { "quality_assessment": { "is_acceptable": BOOLEAN, "reason": "STRING" // Если неприемлемо, укажите четкую, краткую причину на РУССКОМ (например, 'Неполный обход автомобиля.', 'Движение камеры слишком резкое, изображение размыто.', 'Обход автомобиля был выполнен не в одном направлении.'). Если приемлемо, это может быть 'Хорошее качество для анализа.' }, "damages": [ // An empty array [] if quality is not acceptable. // ... остальная структура без изменений ... ] } `;
+JSON Structure: { "quality_assessment": { "is_acceptable": BOOLEAN, "reason": "STRING" // Если неприемлемо, укажите четкую, краткую причину на РУССКОМ (например, 'Неполный обход автомобиля.', 'Движение камеры слишком резкое, изображение размыто.', 'Обход автомобиля был выполнен не в одном направлении.'). Если приемлемо, это может быть 'Хорошее качество для анализа.' }, "damages": [ // An empty array [] if quality is not acceptable or no damages are found. // If damages are found, populate with objects like this: { "part": "STRING // e.g., 'Передний бампер'", "type": "STRING // e.g., 'Царапина', 'Вмятина', 'Скол'", "description": "STRING // A brief, clear description of the damage in Russian." } ] } `;
 
     const payload = {
         contents: [{

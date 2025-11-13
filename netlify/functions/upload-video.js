@@ -1,5 +1,5 @@
 
-const { getStore } = require('@netlify/blobs');
+const { getStore, connectLambda } = require('@netlify/blobs');
 
 exports.handler = async (event) => {
     if (event.httpMethod !== 'POST') {
@@ -7,6 +7,7 @@ exports.handler = async (event) => {
     }
 
     try {
+        connectLambda(event);
         // Dynamically import uuid
         const { v4: uuidv4 } = await import('uuid');
 

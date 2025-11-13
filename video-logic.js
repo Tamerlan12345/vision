@@ -31,6 +31,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const resultsSummary = document.getElementById('results-summary');
     const resultsContainer = document.getElementById('results-container');
     const errorMessage = document.getElementById('error-message');
+    const errorText = document.getElementById('error-text');
+    const errorDetails = document.getElementById('error-details');
     const processingStatus = document.getElementById('processing-status');
 
     // State variables
@@ -313,12 +315,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({ video: videoBase64 }),
             });
 
+            // Even if the request is "ok", it might contain an error message
+            const responseBody = await response.text();
             if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`Ошибка загрузки: ${response.status} ${errorText}`);
+                // Construct a detailed error message
+                throw new Error(`Ошибка загрузки: ${response.status} ${response.statusText}. Ответ сервера: ${responseBody}`);
             }
 
-            const { jobId } = await response.json();
+            const { jobId } = JSON.parse(responseBody);
             if (!jobId) {
                 throw new Error('Не удалось получить ID задачи для анализа.');
             }
@@ -334,19 +338,25 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function pollStatus(jobId) {
-        // Clear any existing timer
         if (pollingInterval) clearInterval(pollingInterval);
 
         pollingInterval = setInterval(async () => {
             try {
                 const response = await fetch(`/.netlify/functions/check-status?jobId=${jobId}`);
+                 const responseBody = await response.text();
+
                 if (!response.ok) {
-                    // Stop polling on server error
                     clearInterval(pollingInterval);
-                    throw new Error(`Ошибка проверки статуса: ${response.status}`);
+                    // Try to parse for more details, but fall back to text
+                    let errorDetails = responseBody;
+                    try {
+                        const errorJson = JSON.parse(responseBody);
+                        errorDetails = errorJson.error || JSON.stringify(errorJson);
+                    } catch(e) { /* Ignore parsing error */ }
+                    throw new Error(`Ошибка проверки статуса: ${response.status} ${response.statusText}. Детали: ${errorDetails}`);
                 }
 
-                const data = await response.json();
+                const data = JSON.parse(responseBody);
 
                 switch (data.status) {
                     case 'pending':
@@ -355,7 +365,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     case 'processing':
                         let stageText = 'Обработка видео...';
                         if (data.stage === 'converting') stageText = 'Конвертация формата видео...';
-                        if (data.stage === 'analyzing') stageText = 'Анализ повреждений...';
+                        else if (data.stage === 'analyzing') stageText = 'Анализ повреждений...';
+                        else if (data.stage) stageText = `Шаг: ${data.stage}...`;
                         processingStatus.textContent = stageText;
                         break;
                     case 'complete':
@@ -366,7 +377,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         break;
                     case 'error':
                         clearInterval(pollingInterval);
-                        throw new Error(data.message || 'Произошла неизвестная ошибка на сервере.');
+                        // Use the new client-facing error if available
+                        const errorMessage = data['client-facing-error'] || data.message || 'Произошла неизвестная ошибка на сервере.';
+                        throw new Error(errorMessage);
                 }
             } catch (error) {
                 clearInterval(pollingInterval);
@@ -408,8 +421,28 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function showErrorMessage(message) {
-        errorMessage.textContent = `Ошибка: ${message}`;
+    function showErrorMessage(fullMessage) {
+        let mainMessage = 'Произошла ошибка';
+        let details = fullMessage;
+
+        // Try to parse structured error messages from the server
+        const detailMarker = '. Ответ сервера:';
+        const statusMarker = '. Детали:';
+        if (fullMessage.includes(detailMarker)) {
+            const parts = fullMessage.split(detailMarker);
+            mainMessage = parts[0];
+            details = parts[1];
+        } else if (fullMessage.includes(statusMarker)) {
+             const parts = fullMessage.split(statusMarker);
+            mainMessage = parts[0];
+            details = parts[1];
+        }
+
+        console.error(`Displaying error: ${mainMessage}`, `Details: ${details}`);
+
+        errorText.textContent = mainMessage;
+        errorDetails.textContent = details;
         errorMessage.style.display = 'block';
+        resultsContent.classList.add('hidden'); // Hide results content on error
     }
 });

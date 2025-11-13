@@ -1,5 +1,6 @@
 
 const { getStore, connectLambda } = require('@netlify/blobs');
+const fetch = require('node-fetch');
 
 exports.handler = async (event) => {
     if (event.httpMethod !== 'POST') {

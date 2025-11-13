@@ -179,7 +179,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const carVideoBlob = new Blob(carChunks, { type: mimeType });
 
         // Check video size before processing
-        const MAX_SIZE_MB = 4.5;
+        const MAX_SIZE_MB = 50;
         if (carVideoBlob.size > MAX_SIZE_MB * 1024 * 1024) {
             showErrorMessage(`Видео слишком большое (${(carVideoBlob.size / 1024 / 1024).toFixed(1)}MB). Пожалуйста, запишите видео короче ${MAX_SIZE_MB}MB.`);
             // still show the frames and video player, just don't analyze

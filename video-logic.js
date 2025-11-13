@@ -40,8 +40,19 @@ document.addEventListener('DOMContentLoaded', () => {
     let carTimerInterval;
     let carSecondsElapsed = 0;
     const USER_VIDEO_DURATION = 5; // 5 seconds
+    let mimeType; // To store the supported MIME type
 
     // --- Core Functions ---
+
+    const getSupportedMimeType = () => {
+        const possibleTypes = [
+            'video/mp4; codecs="avc1.42E01E, mp4a.40.2"',
+            'video/mp4',
+            'video/webm; codecs="vp8, opus"',
+            'video/webm',
+        ];
+        return possibleTypes.find(type => MediaRecorder.isTypeSupported(type)) || 'video/webm';
+    };
 
     const showScreen = (screenName) => {
         Object.values(screens).forEach(s => s.classList.remove('active'));
@@ -65,6 +76,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Recording Flow ---
 
     startBtn.addEventListener('click', () => {
+        mimeType = getSupportedMimeType();
+        console.log(`Using MIME type: ${mimeType}`);
         startUserRecording();
     });
 
@@ -74,7 +87,7 @@ document.addEventListener('DOMContentLoaded', () => {
             currentStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
             userVideoPreview.srcObject = currentStream;
 
-            userMediaRecorder = new MediaRecorder(currentStream);
+            userMediaRecorder = new MediaRecorder(currentStream, { mimeType });
             userMediaRecorder.ondataavailable = e => {
                 if (e.data.size > 0) userChunks.push(e.data);
             };
@@ -121,7 +134,7 @@ document.addEventListener('DOMContentLoaded', () => {
             currentStream = await navigator.mediaDevices.getUserMedia(constraints);
             carVideoPreview.srcObject = currentStream;
 
-            carMediaRecorder = new MediaRecorder(currentStream);
+            carMediaRecorder = new MediaRecorder(currentStream, { mimeType });
             carMediaRecorder.ondataavailable = e => {
                 if (e.data.size > 0) carChunks.push(e.data);
             };
@@ -162,8 +175,8 @@ document.addEventListener('DOMContentLoaded', () => {
     async function processVideos() {
         processingStatus.textContent = 'Обработка видео и извлечение кадров...';
 
-        const userVideoBlob = new Blob(userChunks, { type: 'video/webm' });
-        const carVideoBlob = new Blob(carChunks, { type: 'video/webm' });
+        const userVideoBlob = new Blob(userChunks, { type: mimeType });
+        const carVideoBlob = new Blob(carChunks, { type: mimeType });
 
         // Check video size before processing
         const MAX_SIZE_MB = 4.5;

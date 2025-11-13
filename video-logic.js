@@ -39,6 +39,12 @@ document.addEventListener('DOMContentLoaded', () => {
     let userMediaRecorder, carMediaRecorder;
     let userChunks = [], carChunks = [];
     let currentStream;
+
+    // Expose for testing
+    window.testing = {
+        get a_userMediaRecorder() { return userMediaRecorder; },
+        get a_carMediaRecorder() { return carMediaRecorder; }
+    };
     let carTimerInterval;
     let carSecondsElapsed = 0;
     const USER_VIDEO_DURATION = 5; // 5 seconds
@@ -48,15 +54,15 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Core Functions ---
 
     const getSupportedMimeType = () => {
-        // With server-side conversion, we can be more lenient.
-        // Let the browser pick the best it supports.
+        // Prioritize MP4 for broader compatibility, especially on iOS.
+        // Safari on iOS often records in a WebM container that is not easily parsable by FFMPEG on the server.
         const possibleTypes = [
-            'video/mp4; codecs="avc1.42E01E, mp4a.40.2"',
             'video/mp4',
             'video/webm; codecs="vp8, opus"',
             'video/webm',
         ];
-        return possibleTypes.find(type => MediaRecorder.isTypeSupported(type)) || 'video/webm';
+        // Return the first supported type, or an empty string to let the browser decide.
+        return possibleTypes.find(type => MediaRecorder.isTypeSupported(type)) || '';
     };
 
     const showScreen = (screenName) => {
@@ -98,7 +104,17 @@ document.addEventListener('DOMContentLoaded', () => {
     async function startUserRecording() {
         showScreen('userVideo');
         try {
-            currentStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+            // Attempt to get the user-facing camera, with a fallback to any camera
+            try {
+                currentStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+            } catch (err) {
+                if (err.name === 'NotFoundError' || err.name === 'OverconstrainedError') {
+                    console.warn("User camera not found, trying any camera...");
+                    currentStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                } else {
+                    throw err;
+                }
+            }
             userVideoPreview.srcObject = currentStream;
 
             userMediaRecorder = new MediaRecorder(currentStream, { mimeType });
@@ -121,14 +137,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (userSecondsLeft <= 0) {
                     clearInterval(userTimer);
                     if (userMediaRecorder.state === 'recording') {
+                        console.log('Timer elapsed. Stopping user video recording.');
                         userMediaRecorder.stop();
                     }
                 }
             }, 1000);
 
         } catch (err) {
-            console.error("Error accessing front camera:", err);
-            showErrorMessage("Не удалось получить доступ к фронтальной камере. Пожалуйста, проверьте разрешения.");
+            console.error("Critical error in startUserRecording:", err);
+            let errorMessage = "Не удалось получить доступ к фронтальной камере. Пожалуйста, проверьте разрешения.";
+            if (err.name) {
+                errorMessage += ` (Ошибка: ${err.name})`;
+            }
+            console.error("Error accessing front camera:", err.name, err.message);
+            showErrorMessage(errorMessage);
             showScreen('start');
         }
     }
@@ -136,15 +158,19 @@ document.addEventListener('DOMContentLoaded', () => {
     async function startCarRecording() {
         showScreen('recording');
         try {
-            const constraints = {
-                video: {
-                    facingMode: 'environment',
-                    width: { ideal: 640 },
-                    height: { ideal: 480 }
-                },
-                audio: false
-            };
-            currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+             // Attempt to get the environment-facing camera, with a fallback
+            let streamConstraints = { video: { facingMode: 'environment' }, audio: false };
+            try {
+                currentStream = await navigator.mediaDevices.getUserMedia(streamConstraints);
+            } catch (err) {
+                if (err.name === 'NotFoundError' || err.name === 'OverconstrainedError') {
+                    console.warn("Environment camera not found, trying any camera...");
+                    streamConstraints = { video: true, audio: false }; // Fallback
+                    currentStream = await navigator.mediaDevices.getUserMedia(streamConstraints);
+                } else {
+                    throw err;
+                }
+            }
             carVideoPreview.srcObject = currentStream;
 
             carMediaRecorder = new MediaRecorder(currentStream, { mimeType });
@@ -166,8 +192,12 @@ document.addEventListener('DOMContentLoaded', () => {
             }, 1000);
 
         } catch (err) {
-            console.error("Error accessing rear camera:", err);
-            showErrorMessage("Не удалось получить доступ к основной камере. Пожалуйста, проверьте разрешения.");
+            let errorMessage = "Не удалось получить доступ к основной камере. Пожалуйста, проверьте разрешения.";
+            if (err.name) {
+                errorMessage += ` (Ошибка: ${err.name})`;
+            }
+            console.error("Error accessing rear camera:", err.name, err.message);
+            showErrorMessage(errorMessage);
             showScreen('start');
         }
     }

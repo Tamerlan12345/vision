@@ -1,5 +1,5 @@
 
-const { getStore } = require('@netlify/blobs');
+const { getStore, connectLambda } = require('@netlify/blobs');
 const fetch = require('node-fetch');
 const ffmpeg = require('ffmpeg-static');
 const { exec } = require('child_process');
@@ -76,6 +76,9 @@ JSON Structure: { "quality_assessment": { "is_acceptable": BOOLEAN, "reason": "S
 
 
 exports.handler = async (event) => {
+    // Manually initialize blobs
+    connectLambda(event);
+
     if (event.httpMethod !== 'POST') {
         return { statusCode: 405, body: 'Method Not Allowed' };
     }

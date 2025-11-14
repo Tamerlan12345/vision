@@ -88,7 +88,7 @@ for (const [angle, base64Image] of Object.entries(photos)) {
             ]
         }],
         generationConfig: {
-            responseMimeType: "application/json",
+            "response_mime_type": "application/json",
         }
     };
 

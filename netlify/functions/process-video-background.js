@@ -50,7 +50,7 @@ JSON Structure: { "quality_assessment": { "is_acceptable": BOOLEAN, "reason": "S
             ]
         }],
         generationConfig: {
-            responseMimeType: "application/json",
+            response_mime_type: "application/json",
         }
     };
 

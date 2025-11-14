@@ -50,9 +50,11 @@ JSON Structure: { "quality_assessment": { "is_acceptable": BOOLEAN, "reason": "S
             ]
         }],
         generationConfig: {
-            responseMimeType: "application/json",
+            response_mime_type: "application/json",
         }
     };
+
+    console.log("DIAGNOSTIC_V3: Preparing to call Gemini API with corrected snake_case field.");
 
     const response = await fetch(apiUrl, {
         method: 'POST',

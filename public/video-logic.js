@@ -262,7 +262,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function analyzeVideo(videoBase64) {
         processingStatus.textContent = 'Загрузка видео на сервер...';
         try {
-            const response = await fetch('/.netlify/functions/analyze-video', {
+            const response = await fetch('/api/analyze-video', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ video: videoBase64 }),

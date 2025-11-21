@@ -2,8 +2,6 @@
   "name": "netlify-photo-analysis",
   "version": "1.0.0",
   "dependencies": {
-    "ffmpeg-static": "^5.2.0",
-    "node-fetch": "^2.6.1",
-    "uuid": "^13.0.0"
+    "node-fetch": "^2.6.1"
   }
 }

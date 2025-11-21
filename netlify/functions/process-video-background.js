@@ -49,9 +49,12 @@ JSON Structure: { "quality_assessment": { "is_acceptable": BOOLEAN, "reason": "S
                 { inline_data: { mime_type: videoMimeType, data: videoBase64 } }
             ]
         }],
+        generationConfig: {
+            response_mime_type: "application/json",
+        }
     };
 
-    console.log("DIAGNOSTIC_V4: Preparing to call Gemini API without generationConfig (relying on prompt for JSON).");
+    console.log("DIAGNOSTIC_V4: Preparing to call Gemini API with correct snake_case field.");
 
     const response = await fetch(apiUrl, {
         method: 'POST',

@@ -25,7 +25,15 @@ exports.handler = async (event) => {
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
     const videoMimeType = video.substring(5, video.indexOf(';'));
-    const pureBase64 = video.split(',')[1];
+    const base64Marker = ';base64,';
+    const markerIndex = video.indexOf(base64Marker);
+    let pureBase64 = '';
+    if (markerIndex !== -1) {
+        pureBase64 = video.substring(markerIndex + base64Marker.length);
+    } else {
+        // Fallback for non-standard or missing base64 marker, though unlikely for valid data URIs
+        pureBase64 = video.split(',')[1];
+    }
 
     const prompt = `You are an expert AI vehicle damage inspector. Analyze the provided video of a car walkaround. Your task is twofold:
 Assess Video Quality: First, determine if the video is suitable for a reliable damage assessment. Check for:

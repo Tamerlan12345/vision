@@ -1,12 +1,8 @@
 {
   "name": "netlify-photo-analysis",
   "version": "1.0.0",
-  "scripts": {
-    "test": "npx playwright test"
-  },
   "dependencies": {
     "@netlify/blobs": "^10.3.3",
-    "@playwright/test": "^1.56.1",
     "ffmpeg-static": "^5.2.0",
     "node-fetch": "^2.6.1",
     "uuid": "^13.0.0"

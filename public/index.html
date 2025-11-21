@@ -821,7 +821,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function analyzeWithGemini(photos) {
-        const apiUrl = '/.netlify/functions/analyze'; // The new endpoint
+        const apiUrl = '/api/analyze'; // The new endpoint
 
         processingStatus.textContent = 'Отправка изображений на сервер для анализа...';
 

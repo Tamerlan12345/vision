@@ -1,7 +1,14 @@
 {
   "name": "netlify-photo-analysis",
   "version": "1.0.0",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
   "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
     "node-fetch": "^2.6.1"
   }
 }

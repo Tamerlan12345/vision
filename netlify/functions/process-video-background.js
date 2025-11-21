@@ -29,7 +29,7 @@ const callGeminiApi = async (videoBase64, videoMimeType) => {
     if (!apiKey) throw new Error('GEMINI_API_KEY is not set.');
 
     const model = 'gemini-1.5-flash-latest';
-    const apiUrl = `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${apiKey}`;
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
     const prompt = `You are an expert AI vehicle damage inspector. Analyze the provided video of a car walkaround. Your task is twofold:
 Assess Video Quality: First, determine if the video is suitable for a reliable damage assessment. Check for:

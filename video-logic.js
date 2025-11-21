@@ -41,18 +41,15 @@ document.addEventListener('DOMContentLoaded', () => {
     let carSecondsElapsed = 0;
     const USER_VIDEO_DURATION = 5; // 5 seconds
     let mimeType; // To store the supported MIME type
-    let pollingInterval; // To store the interval for status checks
 
     // --- Core Functions ---
 
     const getSupportedMimeType = () => {
-        // With server-side conversion, we can be more lenient.
-        // Let the browser pick the best it supports.
         const possibleTypes = [
-            'video/mp4; codecs="avc1.42E01E, mp4a.40.2"',
-            'video/mp4',
             'video/webm; codecs="vp8, opus"',
             'video/webm',
+            'video/mp4; codecs="avc1.42E01E, mp4a.40.2"',
+            'video/mp4',
         ];
         return possibleTypes.find(type => MediaRecorder.isTypeSupported(type)) || 'video/webm';
     };
@@ -62,9 +59,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (screens[screenName]) {
             screens[screenName].classList.add('active');
         }
-        // Clear any previous error messages when changing screens
-        errorMessage.style.display = 'none';
-        errorMessage.textContent = '';
     };
 
     const formatTime = (seconds) => {
@@ -82,15 +76,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Recording Flow ---
 
     startBtn.addEventListener('click', () => {
-        try {
-            mimeType = getSupportedMimeType();
-            console.log(`Using MIME type: ${mimeType}`);
-            startUserRecording();
-        } catch (error) {
-            console.error("Error setting up recording:", error);
-            showErrorMessage(error.message);
-            showScreen('start');
-        }
+        mimeType = getSupportedMimeType();
+        console.log(`Using MIME type: ${mimeType}`);
+        startUserRecording();
     });
 
     async function startUserRecording() {
@@ -134,6 +122,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function startCarRecording() {
         showScreen('recording');
         try {
+            // Constrain video resolution to reduce file size
             const constraints = {
                 video: {
                     facingMode: 'environment',
@@ -149,16 +138,17 @@ document.addEventListener('DOMContentLoaded', () => {
             carMediaRecorder.ondataavailable = e => {
                 if (e.data.size > 0) carChunks.push(e.data);
             };
-            carMediaRecorder.onstop = processVideos;
+            carMediaRecorder.onstop = processVideos; // Process both videos when this one stops
 
             carMediaRecorder.start();
 
+            // Timer for car video
             carSecondsElapsed = 0;
             carTimerDisplay.textContent = formatTime(carSecondsElapsed);
             carTimerInterval = setInterval(() => {
                 carSecondsElapsed++;
                 carTimerDisplay.textContent = formatTime(carSecondsElapsed);
-                if (carSecondsElapsed >= 60) {
+                if (carSecondsElapsed >= 60) { // Max duration
                     stopRecording();
                 }
             }, 1000);
@@ -170,16 +160,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    const stopRecording = () => {
+    stopBtn.addEventListener('click', () => {
         if (carMediaRecorder && carMediaRecorder.state === 'recording') {
             carMediaRecorder.stop();
         }
         clearInterval(carTimerInterval);
         stopAllStreams();
         showScreen('processing');
-    };
+    });
 
-    stopBtn.addEventListener('click', stopRecording);
 
     // --- Processing and Results ---
 
@@ -189,27 +178,35 @@ document.addEventListener('DOMContentLoaded', () => {
         const userVideoBlob = new Blob(userChunks, { type: mimeType });
         const carVideoBlob = new Blob(carChunks, { type: mimeType });
 
+        // Check video size before processing
         const MAX_SIZE_MB = 50;
         if (carVideoBlob.size > MAX_SIZE_MB * 1024 * 1024) {
             showErrorMessage(`Видео слишком большое (${(carVideoBlob.size / 1024 / 1024).toFixed(1)}MB). Пожалуйста, запишите видео короче ${MAX_SIZE_MB}MB.`);
+            // still show the frames and video player, just don't analyze
             showScreen('results');
             resultsContent.classList.remove('hidden');
             resultsSummary.textContent = "Анализ отменен из-за размера видео.";
             return;
         }
 
+        // Free up memory
         userChunks = [];
         carChunks = [];
 
         try {
+            // Extract frames
+            const userFramePromise = extractFrame(userVideoBlob, USER_VIDEO_DURATION / 2);
+            const carDuration = carSecondsElapsed;
+            const carFrame1_promise = extractFrame(carVideoBlob, carDuration * 0.1);
+            const carFrame2_promise = extractFrame(carVideoBlob, carDuration * 0.4);
+            const carFrame3_promise = extractFrame(carVideoBlob, carDuration * 0.7);
+            const carFrame4_promise = extractFrame(carVideoBlob, carDuration * 0.95);
+
             const [userFrame, carFrame1_img, carFrame2_img, carFrame3_img, carFrame4_img] = await Promise.all([
-                extractFrame(userVideoBlob, USER_VIDEO_DURATION / 2),
-                extractFrame(carVideoBlob, carSecondsElapsed * 0.1),
-                extractFrame(carVideoBlob, carSecondsElapsed * 0.4),
-                extractFrame(carVideoBlob, carSecondsElapsed * 0.7),
-                extractFrame(carVideoBlob, carSecondsElapsed * 0.95),
+                userFramePromise, carFrame1_promise, carFrame2_promise, carFrame3_promise, carFrame4_promise
             ]);
 
+            // Display frames and video
             userPhotoResult.src = userFrame;
             carFrame1.src = carFrame1_img;
             carFrame2.src = carFrame2_img;
@@ -217,10 +214,11 @@ document.addEventListener('DOMContentLoaded', () => {
             carFrame4.src = carFrame4_img;
             resultVideo.src = URL.createObjectURL(carVideoBlob);
 
+            // Convert car video to Base64 for analysis
             const reader = new FileReader();
             reader.onloadend = () => {
                 const base64data = reader.result;
-                startAnalysisJob(base64data);
+                analyzeVideo(base64data);
             };
             reader.readAsDataURL(carVideoBlob);
 
@@ -240,7 +238,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const context = canvas.getContext('2d');
             const videoUrl = URL.createObjectURL(videoBlob);
 
-            video.onloadedmetadata = () => { video.currentTime = timeInSeconds; };
+            video.onloadedmetadata = () => {
+                video.currentTime = timeInSeconds;
+            };
+
             video.onseeked = () => {
                 canvas.width = video.videoWidth;
                 canvas.height = video.videoHeight;
@@ -248,90 +249,61 @@ document.addEventListener('DOMContentLoaded', () => {
                 resolve(canvas.toDataURL('image/jpeg'));
                 URL.revokeObjectURL(videoUrl);
             };
-            video.onerror = () => {
+
+            video.onerror = (e) => {
                 reject(new Error('Failed to load video for frame extraction.'));
                 URL.revokeObjectURL(videoUrl);
             };
+
             video.src = videoUrl;
         });
     }
 
-    async function startAnalysisJob(videoBase64) {
+    async function analyzeVideo(videoBase64) {
         processingStatus.textContent = 'Загрузка видео на сервер...';
         try {
-            const response = await fetch('/.netlify/functions/upload-video', {
+            const response = await fetch('/.netlify/functions/analyze-video', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ video: videoBase64 }),
             });
 
+            processingStatus.textContent = 'Анализ видео... Это может занять несколько минут.';
+
             if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`Ошибка загрузки: ${response.status} ${errorText}`);
+                // Initialize a detailed error message with the HTTP status
+                let detailedError = `HTTP Status: ${response.status} ${response.statusText}\n`;
+                try {
+                    // Try to get the response body as text
+                    const errorBody = await response.text();
+
+                    // Try to parse the text as JSON for a more structured error
+                    try {
+                        const errJson = JSON.parse(errorBody);
+                        detailedError += `Error Details: ${errJson['client-facing-error'] || errJson.error || JSON.stringify(errJson)}`;
+                    } catch (jsonError) {
+                        // If it's not JSON, append the raw text (which could be HTML or plain text)
+                        detailedError += `Response Body: ${errorBody}`;
+                    }
+                } catch (bodyError) {
+                    detailedError += 'Could not read response body.';
+                }
+                throw new Error(detailedError);
             }
 
-            const { jobId } = await response.json();
-            if (!jobId) {
-                throw new Error('Не удалось получить ID задачи для анализа.');
-            }
-
-            processingStatus.textContent = 'Видео загружено. Ожидание начала обработки...';
-            pollStatus(jobId);
+            const result = await response.json();
+            displayResults(result.analysis);
+            showScreen('results');
 
         } catch (error) {
-            console.error('Error starting analysis job:', error);
+            console.error('Error during analysis:', error);
             showErrorMessage(error.message);
             showScreen('results');
         }
     }
 
-    function pollStatus(jobId) {
-        // Clear any existing timer
-        if (pollingInterval) clearInterval(pollingInterval);
-
-        pollingInterval = setInterval(async () => {
-            try {
-                const response = await fetch(`/.netlify/functions/check-status?jobId=${jobId}`);
-                if (!response.ok) {
-                    // Stop polling on server error
-                    clearInterval(pollingInterval);
-                    throw new Error(`Ошибка проверки статуса: ${response.status}`);
-                }
-
-                const data = await response.json();
-
-                switch (data.status) {
-                    case 'pending':
-                        processingStatus.textContent = 'Ожидание в очереди на обработку...';
-                        break;
-                    case 'processing':
-                        let stageText = 'Обработка видео...';
-                        if (data.stage === 'converting') stageText = 'Конвертация формата видео...';
-                        if (data.stage === 'analyzing') stageText = 'Анализ повреждений...';
-                        processingStatus.textContent = stageText;
-                        break;
-                    case 'complete':
-                        clearInterval(pollingInterval);
-                        processingStatus.textContent = 'Анализ завершен!';
-                        displayResults(data.analysis);
-                        showScreen('results');
-                        break;
-                    case 'error':
-                        clearInterval(pollingInterval);
-                        throw new Error(data.message || 'Произошла неизвестная ошибка на сервере.');
-                }
-            } catch (error) {
-                clearInterval(pollingInterval);
-                console.error('Error polling status:', error);
-                showErrorMessage(error.message);
-                showScreen('results');
-            }
-        }, 3000); // Poll every 3 seconds
-    }
-
     function displayResults(analysis) {
         resultsContent.classList.remove('hidden');
-        resultsContainer.innerHTML = ''; // Clear previous results
 
         if (!analysis) {
             showErrorMessage("Не удалось получить результаты анализа.");
@@ -343,7 +315,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const reason = document.createElement('p');
             reason.textContent = `Причина: ${analysis.quality_assessment.reason}`;
             resultsContainer.appendChild(reason);
-        } else if (analysis.damages && analysis.damages.length > 0) {
+        }
+
+        if (analysis.damages && analysis.damages.length > 0) {
             resultsSummary.textContent = `Найдено повреждений: ${analysis.damages.length}`;
             analysis.damages.forEach(damage => {
                 const item = document.createElement('div');
@@ -352,11 +326,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     <p><strong>Деталь:</strong> ${damage.part}</p>
                     <p><strong>Тип:</strong> ${damage.type}</p>
                     <p><strong>Описание:</strong> ${damage.description}</p>
+                    <p><strong>Время в видео:</strong> ${damage.timestamp}s</p>
                 `;
                 resultsContainer.appendChild(item);
             });
-        } else {
-             resultsSummary.textContent = "Повреждений не найдено.";
+        } else if (analysis.quality_assessment && analysis.quality_assessment.is_acceptable) {
+            resultsSummary.textContent = "Повреждений не найдено.";
         }
     }
 

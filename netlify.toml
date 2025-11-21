@@ -12,6 +12,3 @@
 # Standard synchronous function for status checks
 [functions."check-status"]
   timeout = 25
-
-[blobs]
-  stores = ["videos", "statuses", "results"]

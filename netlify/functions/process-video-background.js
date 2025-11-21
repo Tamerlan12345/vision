@@ -86,60 +86,39 @@ exports.handler = async (event) => {
         return { statusCode: 400, body: 'jobId is required.' };
     }
 
-    console.log(`Starting background processing for job: ${jobId}`);
     const statusStore = getStore('statuses');
-    let currentStage = 'setup';
 
     try {
-        await statusStore.setJSON(jobId, { status: 'processing', stage: currentStage, timestamp: new Date().toISOString() });
+        await statusStore.setJSON(jobId, { status: 'processing', stage: 'setup', timestamp: new Date().toISOString() });
 
         const videoStore = getStore('videos');
         const videoBase64WithMime = await videoStore.get(jobId);
-        if (!videoBase64WithMime) {
-            throw new Error(`Video data not found in blob store for jobId: ${jobId}`);
-        }
-        console.log(`[${jobId}] Retrieved video from blob store.`);
 
-        const mimeTypeMatch = videoBase64WithMime.match(/^data:(video\/[-a-zA-Z0-9_.+]+);base64,/);
-        if (!mimeTypeMatch) {
-            // Safari on iOS can produce video/mp4; codecs="hvc1" which is valid. Let's be more lenient.
-            // A simple split should be safe enough as we control the client-side code.
-            const mimePart = videoBase64WithMime.substring(0, videoBase64WithMime.indexOf(';base64,'));
-            if (!mimePart.startsWith('data:video/')) {
-                 throw new Error('Could not parse MIME type from data URL. Invalid format.');
-            }
-             console.log(`[${jobId}] Leniently parsed MIME info: ${mimePart}`);
-        } else {
-             console.log(`[${jobId}] Matched MIME type: ${mimeTypeMatch[1]}`);
+        if (!videoBase64WithMime) {
+            throw new Error(`Video data not found for jobId: ${jobId}`);
         }
+
+        const mimeType = videoBase64WithMime.substring(5, videoBase64WithMime.indexOf(';'));
         const base64Data = videoBase64WithMime.split(';base64,').pop();
 
-
-        currentStage = 'file_system';
         const tempDir = os.tmpdir();
         const inputPath = path.join(tempDir, `${jobId}_input`);
         const outputPath = path.join(tempDir, `${jobId}_output.mp4`);
 
         await fs.writeFile(inputPath, base64Data, { encoding: 'base64' });
-        console.log(`[${jobId}] Wrote temporary input file to ${inputPath}`);
 
-        currentStage = 'converting';
-        await statusStore.setJSON(jobId, { status: 'processing', stage: currentStage, timestamp: new Date().toISOString() });
-        console.log(`[${jobId}] Starting video conversion with ffmpeg.`);
+        await statusStore.setJSON(jobId, { status: 'processing', stage: 'converting', timestamp: new Date().toISOString() });
+
         await runFfmpeg(inputPath, outputPath);
-        console.log(`[${jobId}] Finished video conversion. Output at ${outputPath}`);
 
         const convertedVideoBuffer = await fs.readFile(outputPath);
         const convertedVideoBase64 = convertedVideoBuffer.toString('base64');
         const convertedMimeType = 'video/mp4';
 
-        currentStage = 'analyzing';
-        await statusStore.setJSON(jobId, { status: 'processing', stage: currentStage, timestamp: new Date().toISOString() });
-        console.log(`[${jobId}] Calling Gemini API for analysis.`);
-        const analysisResult = await callGeminiApi(convertedVideoBase64, convertedMimeType);
-        console.log(`[${jobId}] Received analysis from Gemini API.`);
+        await statusStore.setJSON(jobId, { status: 'processing', stage: 'analyzing', timestamp: new Date().toISOString() });
 
-        currentStage = 'saving_results';
+        const analysisResult = await callGeminiApi(convertedVideoBase64, convertedMimeType);
+
         const resultStore = getStore('results');
         await resultStore.setJSON(jobId, {
             status: 'complete',
@@ -147,24 +126,22 @@ exports.handler = async (event) => {
             timestamp: new Date().toISOString(),
         });
 
+        // Final status update
         await statusStore.setJSON(jobId, { status: 'complete', timestamp: new Date().toISOString() });
+
         console.log(`Job ${jobId} completed successfully.`);
 
-        currentStage = 'cleanup';
+        // Clean up temporary files
         await fs.unlink(inputPath);
         await fs.unlink(outputPath);
-        console.log(`[${jobId}] Cleaned up temporary files.`);
 
         return { statusCode: 200, body: `Job ${jobId} processed.` };
 
     } catch (error) {
-        console.error(`[${jobId}] Error during stage '${currentStage}':`, error);
+        console.error(`Error processing job ${jobId}:`, error);
         await statusStore.setJSON(jobId, {
             status: 'error',
-            stage: currentStage,
-            message: 'An internal error occurred during processing.',
-            // Client-facing-error is what we'll show the user.
-            "client-facing-error": `Ошибка на этапе '${currentStage}': ${error.message}`,
+            message: error.message,
             timestamp: new Date().toISOString(),
         });
         return { statusCode: 500, body: `Job ${jobId} failed.` };

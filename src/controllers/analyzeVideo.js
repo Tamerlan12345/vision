@@ -32,15 +32,18 @@ exports.handle = async (req, res) => {
         }
 
         const prompt = `You are an expert AI vehicle damage inspector. Analyze the provided video of a car walkaround. Your task is twofold:
-Assess Video Quality: First, determine if the video is suitable for a reliable damage assessment. Check for:
-1.  **Completeness and Trajectory**: The video MUST show a full, continuous 360-degree walkaround of the car. The movement must be in a single direction (e.g., clockwise). Reject the video if the operator moves back and forth, reverses direction, or fails to capture the entire vehicle.
-2.  **Clarity**: Is the video sharp and in focus? Reject if it's blurry.
-3.  **Steadiness**: Is the camera movement smooth, not jerky or too fast? Reject if the motion is unstable.
-4.  **Lighting & Obstructions**: Is it daytime with clear, even lighting? Reject for significant glares, deep shadows, or if parts of the car are obscured.
-Identify and Detail Damages: If, and only if, the video quality is acceptable, meticulously identify every single damage on the vehicle.
+
+Assess Video Quality: First, determine if the video is suitable for a reliable damage assessment. Be reasonable and lenient with human errors.
+1.  **Completeness**: The goal is a 360-degree view. Accept the video if it covers the majority (approx. 75-100%) of the vehicle's perimeter. Even if the start and end points don't perfectly overlap, or if one corner is missed, accept it if the main body panels are visible.
+2.  **Trajectory**: Look for a generally circular path. Do NOT reject the video for minor hesitations, slight back-and-forth movements to adjust focus, or shaky hands. Only reject if the video is chaotic or stays on one spot.
+3.  **Clarity**: Is the video clear enough to see body panels? Reject only if severe blurriness makes damage detection impossible.
+4.  **Lighting**: Reject only if deep darkness or extreme glare prevents seeing the car entirely.
+
+Identify and Detail Damages: If, and only if, the video quality is acceptable (quality_assessment.is_acceptable = true), meticulously identify every single damage on the vehicle.
+
 STRICT OUTPUT FORMAT: Your response must be a single JSON object. Do not include any text before or after the JSON. All user-facing strings MUST be in Russian.
 
-JSON Structure: { "quality_assessment": { "is_acceptable": BOOLEAN, "reason": "STRING" // Если неприемлемо, укажите четкую, краткую причину на РУССКОМ (например, 'Неполный обход автомобиля.', 'Движение камеры слишком резкое, изображение размыто.', 'Обход автомобиля был выполнен не в одном направлении.'). Если приемлемо, это может быть 'Хорошее качество для анализа.' }, "damages": [ // An empty array [] if quality is not acceptable. // ... остальная структура без изменений ... ] } `;
+JSON Structure: { "quality_assessment": { "is_acceptable": BOOLEAN, "reason": "STRING" // If rejected, provide a clear reason in Russian. If acceptable, output "Видео принято к анализу." }, "damages": [ // An empty array [] if quality is not acceptable. { "part": "STRING", "type": "STRING", "description": "STRING", "timestamp": "STRING" // approximate timestamp in seconds } ] } `;
 
         const payload = {
             contents: [{

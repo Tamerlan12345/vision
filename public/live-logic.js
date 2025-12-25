@@ -14,16 +14,19 @@ document.addEventListener('DOMContentLoaded', () => {
     let isRecording = false;
     let nextAudioTime = 0;
 
-    async function initAudioContext() {
-        // Create AudioContext at 16kHz if supported.
-        audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+    // Новые переменные для записи видео и кадров
+    let mediaRecorder;
+    let recordedChunks = [];
+    let snapshots = [];
+    let snapshotInterval;
 
+    async function initAudioContext() {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
         if (audioContext.state === 'suspended') {
             await audioContext.resume();
         }
     }
 
-    // Convert Float32Array to Int16Array
     function floatTo16BitPCM(input) {
         const output = new Int16Array(input.length);
         for (let i = 0; i < input.length; i++) {
@@ -51,32 +54,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
         ws.onmessage = async (event) => {
             let data = event.data;
-
             try {
-                // Handle Blob (Server sends Buffer -> Client receives Blob)
                 if (data instanceof Blob) {
                      data = await data.text();
                 }
-
-                // Now we expect a JSON string
                 const json = JSON.parse(data);
 
-                // Check for serverContent -> modelTurn -> parts -> text or inlineData
                 if (json.serverContent?.modelTurn?.parts) {
                     const parts = json.serverContent.modelTurn.parts;
                     for (const part of parts) {
                         if (part.text) {
-                            // It might be a partial text or the final report JSON string
-                            // If it looks like the final report JSON structure:
-                            if (part.text.includes('"damages":') || part.text.includes('FINISH_REPORT')) {
+                            if (part.text.includes('damages') || part.text.includes('FINISH_REPORT')) {
                                 handleReport(part.text);
                                 stopInspection();
-                            } else {
-                                // Just spoken text transcript or unknown
-                                console.log("AI Text:", part.text);
                             }
                         } else if (part.inlineData && part.inlineData.mimeType.startsWith('audio/')) {
-                            // Audio Data!
                             const base64Audio = part.inlineData.data;
                             handleAudioResponse(base64Audio);
                             updateStatus('ИИ говорит', 'status-speaking');
@@ -84,18 +76,11 @@ document.addEventListener('DOMContentLoaded', () => {
                         }
                     }
                 } else if (json.type === 'report') {
-                     // Custom type if our server wrapper sent it
                      handleReport(json.text);
                      stopInspection();
-                } else {
-                    // Other metadata (turnComplete, etc.)
-                    // console.log("Metadata:", json);
                 }
-
             } catch (e) {
                 console.error("Error processing message:", e);
-                // If parsing fails, maybe it IS raw audio?
-                // But Gemini Bidi API protocol is JSON messages.
             }
         };
 
@@ -112,36 +97,24 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function handleAudioResponse(base64Data) {
-        // Decode Base64 to ArrayBuffer
         const binaryString = window.atob(base64Data);
         const len = binaryString.length;
         const bytes = new Uint8Array(len);
         for (let i = 0; i < len; i++) {
             bytes[i] = binaryString.charCodeAt(i);
         }
-
-        // Gemini returns PCM 24kHz (usually) or 16kHz depending on config.
-        // Assuming 1 channel PCM Int16 (Little Endian).
         const int16Data = new Int16Array(bytes.buffer);
         const floatData = new Float32Array(int16Data.length);
-
         for (let i = 0; i < int16Data.length; i++) {
              floatData[i] = int16Data[i] / 32768.0;
         }
-
-        // Play it
-        // Note: Gemini Voice default is 24000Hz.
         const buffer = audioContext.createBuffer(1, floatData.length, 24000);
         buffer.getChannelData(0).set(floatData);
-
         const source = audioContext.createBufferSource();
         source.buffer = buffer;
         source.connect(audioContext.destination);
-
         const currentTime = audioContext.currentTime;
-        if (nextAudioTime < currentTime) {
-            nextAudioTime = currentTime;
-        }
+        if (nextAudioTime < currentTime) nextAudioTime = currentTime;
         source.start(nextAudioTime);
         nextAudioTime += buffer.duration;
     }
@@ -156,79 +129,81 @@ document.addEventListener('DOMContentLoaded', () => {
     async function startMediaCapture() {
         try {
             await initAudioContext();
-
-            // Get User Media
             stream = await navigator.mediaDevices.getUserMedia({
-                audio: {
-                    channelCount: 1,
-                    sampleRate: 16000
-                },
-                video: {
-                    width: { ideal: 640 },
-                    facingMode: 'environment'
-                }
+                audio: { channelCount: 1, sampleRate: 16000 },
+                video: { width: { ideal: 640 }, facingMode: 'environment' }
             });
 
             videoPreview.srcObject = stream;
             isRecording = true;
 
-            // --- Process Audio ---
+            // --- Local Recording & Snapshots ---
+            recordedChunks = [];
+            snapshots = [];
+            // Проверяем поддерживаемый MIME type
+            const mimeType = MediaRecorder.isTypeSupported("video/webm; codecs=vp9")
+                           ? "video/webm; codecs=vp9"
+                           : "video/webm";
+
+            mediaRecorder = new MediaRecorder(stream, { mimeType });
+            mediaRecorder.ondataavailable = (e) => {
+                if (e.data.size > 0) recordedChunks.push(e.data);
+            };
+            mediaRecorder.start();
+
+            // Делаем снапшоты каждые 3 секунды
+            snapshotInterval = setInterval(() => {
+                captureSnapshot();
+            }, 3000);
+
+            // --- Streaming to AI ---
             const source = audioContext.createMediaStreamSource(stream);
             const processor = audioContext.createScriptProcessor(4096, 1, 1);
-
             source.connect(processor);
             processor.connect(audioContext.destination);
 
             processor.onaudioprocess = (e) => {
                 if (!isRecording || ws.readyState !== WebSocket.OPEN) return;
-
                 const inputData = e.inputBuffer.getChannelData(0);
                 const pcm16 = floatTo16BitPCM(inputData);
                 const base64Audio = arrayBufferToBase64(pcm16.buffer);
-
-                const msg = {
-                    realtime_input: {
-                        media_chunks: [{
-                            mime_type: "audio/pcm",
-                            data: base64Audio
-                        }]
-                    }
-                };
-                ws.send(JSON.stringify(msg));
+                ws.send(JSON.stringify({
+                    realtime_input: { media_chunks: [{ mime_type: "audio/pcm", data: base64Audio }] }
+                }));
             };
 
-            // --- Process Video ---
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
 
             videoInterval = setInterval(() => {
                 if (!isRecording || ws.readyState !== WebSocket.OPEN) return;
-
                 if (videoPreview.videoWidth === 0) return;
 
                 canvas.width = videoPreview.videoWidth;
                 canvas.height = videoPreview.videoHeight;
                 ctx.drawImage(videoPreview, 0, 0);
 
-                const base64Img = canvas.toDataURL('image/jpeg', 0.6).split(',')[1];
-
-                 const msg = {
-                    realtime_input: {
-                        media_chunks: [{
-                            mime_type: "image/jpeg",
-                            data: base64Img
-                        }]
-                    }
-                };
-                ws.send(JSON.stringify(msg));
-
-            }, 500);
+                // Качество 0.5 для скорости передачи
+                const base64Img = canvas.toDataURL('image/jpeg', 0.5).split(',')[1];
+                ws.send(JSON.stringify({
+                    realtime_input: { media_chunks: [{ mime_type: "image/jpeg", data: base64Img }] }
+                }));
+            }, 500); // 2 FPS для ИИ
 
         } catch (err) {
             console.error('Error accessing media:', err);
             errorText.textContent = `Ошибка доступа к камере/микрофону: ${err.message}`;
             stopInspection();
         }
+    }
+
+    function captureSnapshot() {
+        if (!videoPreview.videoWidth) return;
+        const canvas = document.createElement('canvas');
+        canvas.width = videoPreview.videoWidth;
+        canvas.height = videoPreview.videoHeight;
+        canvas.getContext('2d').drawImage(videoPreview, 0, 0);
+        snapshots.push(canvas.toDataURL('image/jpeg', 0.8));
     }
 
     function arrayBufferToBase64(buffer) {
@@ -243,18 +218,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function stopInspection() {
         isRecording = false;
-        if (ws) {
-            ws.close();
+
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+            mediaRecorder.stop();
         }
-        if (stream) {
-            stream.getTracks().forEach(track => track.stop());
-        }
-        if (audioContext) {
-            audioContext.close();
-        }
-        if (videoInterval) {
-            clearInterval(videoInterval);
-        }
+        if (snapshotInterval) clearInterval(snapshotInterval);
+
+        if (ws) ws.close();
+        if (stream) stream.getTracks().forEach(track => track.stop());
+        if (audioContext) audioContext.close();
+        if (videoInterval) clearInterval(videoInterval);
+
         startBtn.disabled = false;
         stopBtn.disabled = true;
         updateStatus('Завершено', 'status-waiting');
@@ -262,8 +236,32 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function handleReport(text) {
         reportContainer.style.display = 'block';
+
+        // 1. Отображение видео и кадров
+        let mediaHtml = '<h3>Запись осмотра</h3>';
+
+        // Видео
+        if (recordedChunks.length > 0) {
+            const blob = new Blob(recordedChunks, { type: 'video/webm' });
+            const videoUrl = URL.createObjectURL(blob);
+            mediaHtml += `<div style="margin-bottom: 20px;"><video src="${videoUrl}" controls style="width: 100%; max-width: 600px; border-radius: 8px;"></video></div>`;
+        }
+
+        // Раскадровка
+        if (snapshots.length > 0) {
+            mediaHtml += '<h4>Ключевые кадры (Раскадровка)</h4><div style="display: flex; gap: 10px; overflow-x: auto; padding-bottom: 10px;">';
+            snapshots.forEach((snap, idx) => {
+                mediaHtml += `<img src="${snap}" style="height: 100px; border-radius: 4px; border: 1px solid #ccc;">`;
+            });
+            mediaHtml += '</div>';
+        }
+
+        // 2. Парсинг и отображение JSON отчета
+        let jsonHtml = '';
         try {
-            // Find JSON in text if it's mixed with other text
+            // Очистка от markdown (```json ... ```)
+            text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+
             const firstBrace = text.indexOf('{');
             const lastBrace = text.lastIndexOf('}');
             if (firstBrace !== -1 && lastBrace !== -1) {
@@ -272,40 +270,37 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const json = JSON.parse(text);
 
-            let html = '<table border="1" style="width:100%; border-collapse: collapse; margin-top: 10px;">';
-
-            if (json.damages) {
-                html += '<tr><th style="padding:8px; text-align:left;">Деталь</th><th style="padding:8px; text-align:left;">Тип</th><th style="padding:8px; text-align:left;">Важность</th></tr>';
+            let tableHtml = '<table border="1" style="width:100%; border-collapse: collapse; margin-top: 15px;">';
+            if (json.damages && json.damages.length > 0) {
+                tableHtml += '<tr style="background:#f4f4f4;"><th style="padding:8px;">Деталь</th><th style="padding:8px;">Тип</th><th style="padding:8px;">Важность</th></tr>';
                 json.damages.forEach(d => {
-                    html += `<tr>
+                    tableHtml += `<tr>
                         <td style="padding:8px;">${d.part || '-'}</td>
                         <td style="padding:8px;">${d.type || '-'}</td>
                         <td style="padding:8px;">${d.severity || '-'}</td>
                     </tr>`;
                 });
-                html += '</table>';
+                tableHtml += '</table>';
+            } else {
+                tableHtml = '<p>Повреждений не найдено.</p>';
             }
 
             let summaryHtml = '';
             if (json.summary) {
-                summaryHtml = `<div style="margin: 10px 0; font-weight: bold;">${json.summary}</div>`;
+                summaryHtml = `<div style="background: #e3f2fd; padding: 15px; border-radius: 8px; margin: 10px 0;"><strong>Итог ИИ:</strong> ${json.summary}</div>`;
             }
 
-            let fraudHtml = '';
-            if (json.fraud_detected) {
-                fraudHtml = `<div style="color: red; margin: 10px 0;"><strong>ВНИМАНИЕ: Обнаружены признаки мошенничества!</strong><br>Причины: ${json.fraud_reasons.join(', ')}</div>`;
-            }
-
-            reportContent.innerHTML = fraudHtml + summaryHtml + html + `<pre style="margin-top:20px; font-size: 0.8em;">RAW: ${JSON.stringify(json, null, 2)}</pre>`;
+            jsonHtml = summaryHtml + tableHtml;
 
         } catch (e) {
-            // Fallback for non-JSON text
-            reportContent.innerHTML = `<p>${text}</p>`;
+            console.warn("JSON Parse Error:", e);
+            jsonHtml = `<p><strong>Сырой ответ ИИ:</strong> ${text}</p>`;
         }
+
+        reportContent.innerHTML = mediaHtml + jsonHtml;
     }
 
     // --- Event Listeners ---
-
     startBtn.addEventListener('click', () => {
         errorText.textContent = '';
         reportContainer.style.display = 'none';
@@ -313,7 +308,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     stopBtn.addEventListener('click', () => {
-        // Send finish command
         if (ws && ws.readyState === WebSocket.OPEN) {
              const msg = {
                  client_content: {
@@ -323,9 +317,9 @@ document.addEventListener('DOMContentLoaded', () => {
             };
             ws.send(JSON.stringify(msg));
             updateStatus('Генерация отчета...', 'status-waiting');
+            // Даем пару секунд на генерацию и потом закрываем, или ждем ответа
         } else {
             stopInspection();
         }
     });
-
 });

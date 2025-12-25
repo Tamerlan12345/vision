@@ -1,359 +1,331 @@
 document.addEventListener('DOMContentLoaded', () => {
-    // Screen elements
-    const screens = {
-        start: document.getElementById('screen-start'),
-        live: document.getElementById('screen-live'),
-        results: document.getElementById('screen-results'),
-    };
+    const videoPreview = document.getElementById('video-preview');
+    const startBtn = document.getElementById('start-btn');
+    const stopBtn = document.getElementById('stop-btn');
+    const statusIndicator = document.getElementById('status-indicator');
+    const reportContainer = document.getElementById('reportContainer');
+    const reportContent = document.getElementById('report-content');
+    const errorText = document.getElementById('error-text');
 
-    // Button elements
-    const startBtn = document.getElementById('start-live-btn');
-    const endBtn = document.getElementById('end-inspection-btn');
+    let ws;
+    let audioContext;
+    let stream;
+    let videoInterval;
+    let isRecording = false;
+    let nextAudioTime = 0;
 
-    // Video preview elements
-    const videoPreview = document.getElementById('live-video-preview');
+    async function initAudioContext() {
+        // Create AudioContext at 16kHz if supported.
+        audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
 
-    // Status elements
-    const statusDot = document.getElementById('status-dot');
-    const statusText = document.getElementById('status-text');
-
-    // Results elements
-    const resultsContent = document.getElementById('results-content');
-    const resultsSummary = document.getElementById('results-summary');
-    const fraudStatus = document.getElementById('fraud-status');
-    const damagesContainer = document.getElementById('damages-container');
-    const errorMessage = document.getElementById('error-message');
-
-    // State variables
-    let webSocket = null;
-    let audioContext = null;
-    let mediaStream = null;
-    let videoInterval = null;
-    let audioWorkletNode = null;
-    let sourceNode = null;
-
-    // Constants
-    const SAMPLE_RATE = 16000; // Required by Gemini Live API
-    const BUFFER_SIZE = 2048;
-
-    // --- Helper Functions ---
-
-    const showScreen = (screenName) => {
-        Object.values(screens).forEach(s => s.classList.remove('active'));
-        if (screens[screenName]) {
-            screens[screenName].classList.add('active');
+        if (audioContext.state === 'suspended') {
+            await audioContext.resume();
         }
-    };
-
-    const updateStatus = (status) => {
-        statusDot.className = 'status-dot';
-        if (status === 'listening') {
-            statusDot.classList.add('listening');
-            statusText.textContent = 'ИИ слушает...';
-        } else if (status === 'speaking') {
-            statusDot.classList.add('speaking');
-            statusText.textContent = 'ИИ говорит...';
-        } else if (status === 'connected') {
-            statusText.textContent = 'Подключено';
-            statusDot.style.backgroundColor = 'var(--success-color)';
-        } else {
-            statusText.textContent = 'Подключение...';
-        }
-    };
-
-    // --- Audio Processing ---
-
-    // Downsample buffer from AudioContext rate to 16000Hz
-    function downsampleBuffer(buffer, sampleRate) {
-        if (sampleRate === 16000) {
-            return buffer;
-        }
-        const sampleRateRatio = sampleRate / 16000;
-        const newLength = Math.round(buffer.length / sampleRateRatio);
-        const result = new Int16Array(newLength);
-        let offsetResult = 0;
-        let offsetBuffer = 0;
-        while (offsetResult < result.length) {
-            const nextOffsetBuffer = Math.round((offsetResult + 1) * sampleRateRatio);
-            let accum = 0, count = 0;
-            for (let i = offsetBuffer; i < nextOffsetBuffer && i < buffer.length; i++) {
-                accum += buffer[i];
-                count++;
-            }
-            // Clamp to Int16 range
-            let val = accum / count;
-            val = Math.max(-1, Math.min(1, val));
-            result[offsetResult] = val < 0 ? val * 0x8000 : val * 0x7FFF;
-            offsetResult++;
-            offsetBuffer = nextOffsetBuffer;
-        }
-        return result;
     }
 
-    // Convert Base64 string to Float32Array for playback
-    function base64ToAudioBuffer(base64) {
-        const binaryString = window.atob(base64);
+    // Convert Float32Array to Int16Array
+    function floatTo16BitPCM(input) {
+        const output = new Int16Array(input.length);
+        for (let i = 0; i < input.length; i++) {
+            const s = Math.max(-1, Math.min(1, input[i]));
+            output[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+        }
+        return output;
+    }
+
+    // --- WebSocket Logic ---
+
+    function connectWebSocket() {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/ws/live-inspection`;
+
+        ws = new WebSocket(wsUrl);
+
+        ws.onopen = () => {
+            console.log('WebSocket Connected');
+            updateStatus('Слушаю', 'status-listening');
+            startBtn.disabled = true;
+            stopBtn.disabled = false;
+            startMediaCapture();
+        };
+
+        ws.onmessage = async (event) => {
+            let data = event.data;
+
+            try {
+                // Handle Blob (Server sends Buffer -> Client receives Blob)
+                if (data instanceof Blob) {
+                     data = await data.text();
+                }
+
+                // Now we expect a JSON string
+                const json = JSON.parse(data);
+
+                // Check for serverContent -> modelTurn -> parts -> text or inlineData
+                if (json.serverContent?.modelTurn?.parts) {
+                    const parts = json.serverContent.modelTurn.parts;
+                    for (const part of parts) {
+                        if (part.text) {
+                            // It might be a partial text or the final report JSON string
+                            // If it looks like the final report JSON structure:
+                            if (part.text.includes('"damages":') || part.text.includes('FINISH_REPORT')) {
+                                handleReport(part.text);
+                                stopInspection();
+                            } else {
+                                // Just spoken text transcript or unknown
+                                console.log("AI Text:", part.text);
+                            }
+                        } else if (part.inlineData && part.inlineData.mimeType.startsWith('audio/')) {
+                            // Audio Data!
+                            const base64Audio = part.inlineData.data;
+                            handleAudioResponse(base64Audio);
+                            updateStatus('ИИ говорит', 'status-speaking');
+                            setTimeout(() => updateStatus('Слушаю', 'status-listening'), 2000);
+                        }
+                    }
+                } else if (json.type === 'report') {
+                     // Custom type if our server wrapper sent it
+                     handleReport(json.text);
+                     stopInspection();
+                } else {
+                    // Other metadata (turnComplete, etc.)
+                    // console.log("Metadata:", json);
+                }
+
+            } catch (e) {
+                console.error("Error processing message:", e);
+                // If parsing fails, maybe it IS raw audio?
+                // But Gemini Bidi API protocol is JSON messages.
+            }
+        };
+
+        ws.onclose = () => {
+            console.log('WebSocket Closed');
+            stopInspection();
+        };
+
+        ws.onerror = (error) => {
+            console.error('WebSocket Error:', error);
+            errorText.textContent = 'Ошибка соединения с сервером.';
+            stopInspection();
+        };
+    }
+
+    function handleAudioResponse(base64Data) {
+        // Decode Base64 to ArrayBuffer
+        const binaryString = window.atob(base64Data);
         const len = binaryString.length;
         const bytes = new Uint8Array(len);
         for (let i = 0; i < len; i++) {
             bytes[i] = binaryString.charCodeAt(i);
         }
-        // Assuming 16-bit PCM LE
-        const int16Array = new Int16Array(bytes.buffer);
-        const float32Array = new Float32Array(int16Array.length);
-        for (let i = 0; i < int16Array.length; i++) {
-            float32Array[i] = int16Array[i] / 32768.0;
+
+        // Gemini returns PCM 24kHz (usually) or 16kHz depending on config.
+        // Assuming 1 channel PCM Int16 (Little Endian).
+        const int16Data = new Int16Array(bytes.buffer);
+        const floatData = new Float32Array(int16Data.length);
+
+        for (let i = 0; i < int16Data.length; i++) {
+             floatData[i] = int16Data[i] / 32768.0;
         }
-        return float32Array;
+
+        // Play it
+        // Note: Gemini Voice default is 24000Hz.
+        const buffer = audioContext.createBuffer(1, floatData.length, 24000);
+        buffer.getChannelData(0).set(floatData);
+
+        const source = audioContext.createBufferSource();
+        source.buffer = buffer;
+        source.connect(audioContext.destination);
+
+        const currentTime = audioContext.currentTime;
+        if (nextAudioTime < currentTime) {
+            nextAudioTime = currentTime;
+        }
+        source.start(nextAudioTime);
+        nextAudioTime += buffer.duration;
     }
 
-    // Play audio chunk
-    function playAudioChunk(base64Audio) {
-        if (!audioContext) return;
-
-        try {
-            const audioData = base64ToAudioBuffer(base64Audio);
-            const audioBuffer = audioContext.createBuffer(1, audioData.length, 24000); // Gemini output is 24kHz
-            audioBuffer.getChannelData(0).set(audioData);
-
-            const source = audioContext.createBufferSource();
-            source.buffer = audioBuffer;
-            source.connect(audioContext.destination);
-            source.start(0);
-
-            updateStatus('speaking');
-            source.onended = () => {
-                updateStatus('listening');
-            };
-        } catch (e) {
-            console.error("Error playing audio chunk", e);
-        }
+    function updateStatus(text, className) {
+        statusIndicator.textContent = `Статус: ${text}`;
+        statusIndicator.className = className;
     }
-
-
-    // --- WebSocket Logic ---
-
-    const connectWebSocket = () => {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}`; // Connect to local server
-
-        console.log(`Connecting to WebSocket: ${wsUrl}`);
-        webSocket = new WebSocket(wsUrl);
-
-        webSocket.onopen = () => {
-            console.log('WebSocket connected');
-            updateStatus('connected');
-            endBtn.classList.remove('hidden');
-            startAudioStream();
-            startVideoStream();
-        };
-
-        webSocket.onmessage = async (event) => {
-            let data;
-            if (event.data instanceof Blob) {
-                 data = JSON.parse(await event.data.text());
-            } else {
-                 data = JSON.parse(event.data);
-            }
-
-            if (data.serverContent && data.serverContent.modelTurn) {
-                const parts = data.serverContent.modelTurn.parts;
-                for (const part of parts) {
-                    if (part.inlineData && part.inlineData.mimeType.startsWith('audio/')) {
-                         playAudioChunk(part.inlineData.data);
-                    } else if (part.text) {
-                        // Check if it is the final JSON report
-                         try {
-                             // Sometimes text might be wrapped in ```json ... ```
-                             let jsonText = part.text.replace(/```json|```/g, '').trim();
-                             if (jsonText.startsWith('{')) {
-                                 const report = JSON.parse(jsonText);
-                                 handleFinalReport(report);
-                             } else {
-                                 console.log("Text message from AI:", part.text);
-                             }
-                         } catch (e) {
-                             console.log("Text message from AI (not JSON):", part.text);
-                         }
-                    }
-                }
-            } else if (data.serverContent && data.serverContent.turnComplete) {
-                 updateStatus('listening');
-            }
-        };
-
-        webSocket.onerror = (error) => {
-            console.error('WebSocket error:', error);
-            showErrorMessage('Ошибка соединения с сервером.');
-        };
-
-        webSocket.onclose = () => {
-            console.log('WebSocket disconnected');
-            stopInspection();
-        };
-    };
-
-    const sendAudioData = (inputBuffer) => {
-        if (!webSocket || webSocket.readyState !== WebSocket.OPEN) return;
-
-        const pcmData = downsampleBuffer(inputBuffer, audioContext.sampleRate);
-        const base64Audio = btoa(String.fromCharCode(...new Uint8Array(pcmData.buffer)));
-
-        const message = {
-            realtime_input: {
-                media_chunks: [{
-                    mime_type: "audio/pcm",
-                    data: base64Audio
-                }]
-            }
-        };
-        webSocket.send(JSON.stringify(message));
-    };
-
-    const sendVideoFrame = () => {
-        if (!webSocket || webSocket.readyState !== WebSocket.OPEN || !mediaStream) return;
-
-        const canvas = document.createElement('canvas');
-        canvas.width = videoPreview.videoWidth;
-        canvas.height = videoPreview.videoHeight;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(videoPreview, 0, 0);
-
-        // Convert to base64 JPEG
-        const base64Image = canvas.toDataURL('image/jpeg', 0.6).split(',')[1];
-
-        const message = {
-            realtime_input: {
-                media_chunks: [{
-                    mime_type: "image/jpeg",
-                    data: base64Image
-                }]
-            }
-        };
-        webSocket.send(JSON.stringify(message));
-    };
-
 
     // --- Media Capture ---
 
-    startBtn.addEventListener('click', async () => {
-        showScreen('live');
+    async function startMediaCapture() {
         try {
-            audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 }); // Try to set preference, but might be overridden by browser
+            await initAudioContext();
 
-            const stream = await navigator.mediaDevices.getUserMedia({
+            // Get User Media
+            stream = await navigator.mediaDevices.getUserMedia({
                 audio: {
                     channelCount: 1,
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true
+                    sampleRate: 16000
                 },
                 video: {
-                    facingMode: 'environment',
                     width: { ideal: 640 },
-                    height: { ideal: 480 }
+                    facingMode: 'environment'
                 }
             });
 
-            mediaStream = stream;
             videoPreview.srcObject = stream;
+            isRecording = true;
 
-            connectWebSocket();
+            // --- Process Audio ---
+            const source = audioContext.createMediaStreamSource(stream);
+            const processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+            source.connect(processor);
+            processor.connect(audioContext.destination);
+
+            processor.onaudioprocess = (e) => {
+                if (!isRecording || ws.readyState !== WebSocket.OPEN) return;
+
+                const inputData = e.inputBuffer.getChannelData(0);
+                const pcm16 = floatTo16BitPCM(inputData);
+                const base64Audio = arrayBufferToBase64(pcm16.buffer);
+
+                const msg = {
+                    realtime_input: {
+                        media_chunks: [{
+                            mime_type: "audio/pcm",
+                            data: base64Audio
+                        }]
+                    }
+                };
+                ws.send(JSON.stringify(msg));
+            };
+
+            // --- Process Video ---
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+
+            videoInterval = setInterval(() => {
+                if (!isRecording || ws.readyState !== WebSocket.OPEN) return;
+
+                if (videoPreview.videoWidth === 0) return;
+
+                canvas.width = videoPreview.videoWidth;
+                canvas.height = videoPreview.videoHeight;
+                ctx.drawImage(videoPreview, 0, 0);
+
+                const base64Img = canvas.toDataURL('image/jpeg', 0.6).split(',')[1];
+
+                 const msg = {
+                    realtime_input: {
+                        media_chunks: [{
+                            mime_type: "image/jpeg",
+                            data: base64Img
+                        }]
+                    }
+                };
+                ws.send(JSON.stringify(msg));
+
+            }, 500);
 
         } catch (err) {
-            console.error("Error accessing media devices:", err);
-            showErrorMessage("Не удалось получить доступ к камере или микрофону.");
-            showScreen('start');
+            console.error('Error accessing media:', err);
+            errorText.textContent = `Ошибка доступа к камере/микрофону: ${err.message}`;
+            stopInspection();
         }
-    });
+    }
 
-    const startAudioStream = async () => {
-        await audioContext.resume();
-        sourceNode = audioContext.createMediaStreamSource(mediaStream);
-
-        // Use ScriptProcessorNode for wide compatibility to get raw PCM
-        const scriptNode = audioContext.createScriptProcessor(4096, 1, 1);
-
-        scriptNode.onaudioprocess = (audioProcessingEvent) => {
-             if (webSocket && webSocket.readyState === WebSocket.OPEN) {
-                 const inputBuffer = audioProcessingEvent.inputBuffer.getChannelData(0);
-                 sendAudioData(inputBuffer);
-             }
-        };
-
-        sourceNode.connect(scriptNode);
-        scriptNode.connect(audioContext.destination); // Needed for the script node to work in some browsers
-
-        // Mute output to avoid feedback loop since we are playing back AI response
-        // But scriptNode needs to be connected to destination.
-        // We can create a GainNode with 0 gain.
-        const gainNode = audioContext.createGain();
-        gainNode.gain.value = 0;
-        scriptNode.connect(gainNode);
-        gainNode.connect(audioContext.destination);
-    };
-
-    const startVideoStream = () => {
-        videoInterval = setInterval(sendVideoFrame, 1000); // Send frame every 1 second
-    };
-
-    const stopInspection = () => {
-        if (webSocket) {
-            webSocket.close();
-            webSocket = null;
+    function arrayBufferToBase64(buffer) {
+        let binary = '';
+        const bytes = new Uint8Array(buffer);
+        const len = bytes.byteLength;
+        for (let i = 0; i < len; i++) {
+            binary += String.fromCharCode(bytes[i]);
         }
-        if (mediaStream) {
-            mediaStream.getTracks().forEach(track => track.stop());
-            mediaStream = null;
+        return window.btoa(binary);
+    }
+
+    function stopInspection() {
+        isRecording = false;
+        if (ws) {
+            ws.close();
+        }
+        if (stream) {
+            stream.getTracks().forEach(track => track.stop());
         }
         if (audioContext) {
             audioContext.close();
-            audioContext = null;
         }
         if (videoInterval) {
             clearInterval(videoInterval);
-            videoInterval = null;
         }
-    };
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+        updateStatus('Завершено', 'status-waiting');
+    }
 
-    endBtn.addEventListener('click', () => {
-        stopInspection();
-        showScreen('start'); // Or go to results if we have partial results?
+    function handleReport(text) {
+        reportContainer.style.display = 'block';
+        try {
+            // Find JSON in text if it's mixed with other text
+            const firstBrace = text.indexOf('{');
+            const lastBrace = text.lastIndexOf('}');
+            if (firstBrace !== -1 && lastBrace !== -1) {
+                text = text.substring(firstBrace, lastBrace + 1);
+            }
+
+            const json = JSON.parse(text);
+
+            let html = '<table border="1" style="width:100%; border-collapse: collapse; margin-top: 10px;">';
+
+            if (json.damages) {
+                html += '<tr><th style="padding:8px; text-align:left;">Деталь</th><th style="padding:8px; text-align:left;">Тип</th><th style="padding:8px; text-align:left;">Важность</th></tr>';
+                json.damages.forEach(d => {
+                    html += `<tr>
+                        <td style="padding:8px;">${d.part || '-'}</td>
+                        <td style="padding:8px;">${d.type || '-'}</td>
+                        <td style="padding:8px;">${d.severity || '-'}</td>
+                    </tr>`;
+                });
+                html += '</table>';
+            }
+
+            let summaryHtml = '';
+            if (json.summary) {
+                summaryHtml = `<div style="margin: 10px 0; font-weight: bold;">${json.summary}</div>`;
+            }
+
+            let fraudHtml = '';
+            if (json.fraud_detected) {
+                fraudHtml = `<div style="color: red; margin: 10px 0;"><strong>ВНИМАНИЕ: Обнаружены признаки мошенничества!</strong><br>Причины: ${json.fraud_reasons.join(', ')}</div>`;
+            }
+
+            reportContent.innerHTML = fraudHtml + summaryHtml + html + `<pre style="margin-top:20px; font-size: 0.8em;">RAW: ${JSON.stringify(json, null, 2)}</pre>`;
+
+        } catch (e) {
+            // Fallback for non-JSON text
+            reportContent.innerHTML = `<p>${text}</p>`;
+        }
+    }
+
+    // --- Event Listeners ---
+
+    startBtn.addEventListener('click', () => {
+        errorText.textContent = '';
+        reportContainer.style.display = 'none';
+        connectWebSocket();
     });
 
-    // --- Result Handling ---
-
-    function handleFinalReport(report) {
-        stopInspection();
-        showScreen('results');
-        resultsContent.classList.remove('hidden');
-
-        resultsSummary.textContent = report.summary || "Осмотр завершен.";
-
-        if (report.fraud_check === 'passed') {
-            fraudStatus.textContent = "Пройдена";
-            fraudStatus.className = "fraud-check-passed";
+    stopBtn.addEventListener('click', () => {
+        // Send finish command
+        if (ws && ws.readyState === WebSocket.OPEN) {
+             const msg = {
+                 client_content: {
+                     turns: [{ parts: [{ text: "FINISH_REPORT" }], role: "user" }],
+                     turn_complete: true
+                 }
+            };
+            ws.send(JSON.stringify(msg));
+            updateStatus('Генерация отчета...', 'status-waiting');
         } else {
-             fraudStatus.textContent = "Не пройдена (Подозрение)";
-             fraudStatus.className = "fraud-check-failed";
+            stopInspection();
         }
-
-        damagesContainer.innerHTML = '';
-        if (report.damages && report.damages.length > 0) {
-            report.damages.forEach(dmg => {
-                const div = document.createElement('div');
-                div.className = 'damage-item';
-                div.textContent = dmg;
-                damagesContainer.appendChild(div);
-            });
-        } else {
-            damagesContainer.innerHTML = '<p>Повреждений не обнаружено.</p>';
-        }
-    }
-
-    function showErrorMessage(message) {
-        errorMessage.textContent = message;
-        errorMessage.style.display = 'block';
-    }
+    });
 
 });

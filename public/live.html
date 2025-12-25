@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Интерактивный Осмотр (Live) - Сентрас Иншуранс</title>
+    <title>Интерактивный Осмотр - Сентрас Иншуранс</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
@@ -58,9 +58,6 @@
             box-sizing: border-box;
         }
 
-        .screen { display: none; }
-        .screen.active { display: block; }
-
         .card {
             background-color: #fff;
             border-radius: 12px;
@@ -71,13 +68,6 @@
 
         h1, h2 { color: var(--primary-color); }
         p { line-height: 1.6; }
-
-        .instruction-list {
-            text-align: left;
-            margin: 20px auto;
-            max-width: 600px;
-            padding-left: 20px;
-        }
 
         .btn {
             display: inline-block;
@@ -91,23 +81,15 @@
             cursor: pointer;
             text-decoration: none;
             transition: background-color 0.3s, transform 0.2s;
-            margin-top: 10px;
+            margin: 10px;
         }
         .btn:hover {
-            background-color: #004488;
             transform: translateY(-2px);
         }
-        .btn:disabled {
-            background-color: #ccc;
-            cursor: not-allowed;
-            transform: none;
-        }
-        .btn-danger {
-            background-color: var(--error-color);
-        }
-        .btn-danger:hover {
-            background-color: #D32F2F;
-        }
+        .btn-green { background-color: var(--success-color); }
+        .btn-green:hover { background-color: #388E3C; }
+        .btn-red { background-color: var(--error-color); }
+        .btn-red:hover { background-color: #D32F2F; }
 
         .video-container {
             position: relative;
@@ -122,82 +104,35 @@
             display: block;
         }
 
-        .loader {
-            border: 8px solid var(--secondary-color);
-            border-top: 8px solid var(--primary-color);
-            border-radius: 50%;
-            width: 60px;
-            height: 60px;
-            animation: spin 1s linear infinite;
-            margin: 20px auto;
+        #status-indicator {
+            font-size: 1.2em;
+            font-weight: bold;
+            margin: 20px;
+            padding: 10px;
+            border-radius: 5px;
+            background-color: #eee;
         }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+        .status-waiting { color: #666; }
+        .status-listening { color: var(--success-color); background-color: rgba(76, 175, 80, 0.1); }
+        .status-speaking { color: var(--primary-color); background-color: rgba(0, 85, 165, 0.1); }
+
+        #reportContainer {
+            margin-top: 20px;
+            text-align: left;
+            display: none;
         }
 
         .error-message {
-            display: none;
-            background-color: var(--error-color);
-            color: white;
+             color: var(--error-color);
+             margin-top: 10px;
+             font-weight: bold;
+        }
+
+        pre {
+            background: #f4f4f4;
             padding: 15px;
-            border-radius: 8px;
-            margin-top: 20px;
-            text-align: center;
-        }
-
-        .hidden { display: none; }
-
-        #results-container {
-            text-align: left;
-        }
-
-        /* AI Status Indicator */
-        #ai-status {
-            margin-top: 20px;
-            font-weight: bold;
-            font-size: 1.2em;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            gap: 10px;
-        }
-        .status-dot {
-            width: 12px;
-            height: 12px;
-            background-color: #ccc;
-            border-radius: 50%;
-            display: inline-block;
-        }
-        .status-dot.listening {
-            background-color: var(--primary-color);
-            animation: pulse 1s infinite;
-        }
-        .status-dot.speaking {
-            background-color: var(--success-color);
-            animation: pulse 0.5s infinite;
-        }
-        @keyframes pulse {
-            0% { transform: scale(0.95); opacity: 0.7; }
-            50% { transform: scale(1.1); opacity: 1; }
-            100% { transform: scale(0.95); opacity: 0.7; }
-        }
-
-        /* Results Styles */
-        .damage-item {
-            padding: 10px;
-            border-bottom: 1px solid #eee;
-        }
-        .damage-item:last-child {
-            border-bottom: none;
-        }
-        .fraud-check-passed {
-            color: var(--success-color);
-            font-weight: bold;
-        }
-        .fraud-check-failed {
-            color: var(--error-color);
-            font-weight: bold;
+            border-radius: 5px;
+            overflow-x: auto;
         }
     </style>
 </head>
@@ -210,58 +145,32 @@
         <nav style="margin-left: auto;">
             <a href="/index.html" style="margin-right: 20px; text-decoration: none; color: var(--primary-color); font-weight: 500;">Анализ по фото</a>
             <a href="/video.html" style="margin-right: 20px; text-decoration: none; color: var(--primary-color); font-weight: 500;">Анализ по видео</a>
-            <a href="/live.html" style="text-decoration: none; color: var(--primary-color); font-weight: 500;">Интерактивный Осмотр (Live)</a>
+            <a href="/live.html" style="text-decoration: none; color: var(--primary-color); font-weight: 500;">Интерактивный Осмотр</a>
         </nav>
     </header>
     <main>
-        <section id="screen-start" class="screen active card">
-            <h1>Интерактивный Осмотр (Live)</h1>
-            <p>В этом режиме вы будете общаться с ИИ-оператором в реальном времени. Он будет давать вам голосовые указания и проверять состояние автомобиля.</p>
-            <div class="instruction-list">
-                <li><strong>Доступ:</strong> Разрешите доступ к камере и микрофону.</li>
-                <li><strong>Связь:</strong> Убедитесь, что у вас стабильное интернет-соединение.</li>
-                <li><strong>Звук:</strong> Включите звук на устройстве, чтобы слышать оператора.</li>
-            </div>
-            <button id="start-live-btn" class="btn">Соединиться с оператором</button>
-        </section>
+        <div class="card">
+            <h1>Интерактивный Осмотр с ИИ</h1>
+            <p>Включите камеру и следуйте голосовым указаниям инспектора.</p>
 
-        <section id="screen-live" class="screen card">
-            <h2>Осмотр в реальном времени</h2>
-            <div id="ai-status">
-                <span class="status-dot" id="status-dot"></span>
-                <span id="status-text">Подключение...</span>
-            </div>
+            <div id="status-indicator" class="status-waiting">Статус: Ожидание</div>
 
             <div class="video-container">
-                <video id="live-video-preview" playsinline autoplay muted></video>
+                <video id="video-preview" playsinline autoplay muted></video>
             </div>
 
             <div class="controls">
-                <button id="end-inspection-btn" class="btn btn-danger hidden">Завершить осмотр</button>
-            </div>
-        </section>
-
-        <section id="screen-results" class="screen card">
-            <h2>Результаты Осмотра</h2>
-            <div id="error-message" class="error-message"></div>
-
-            <div id="results-content" class="hidden">
-                <h3>Итоговый Отчет</h3>
-                <p id="results-summary"></p>
-
-                <div style="text-align: left; margin-top: 20px;">
-                    <p><strong>Статус проверки на мошенничество:</strong> <span id="fraud-status"></span></p>
-                    <div id="damages-list">
-                        <h4>Найденные повреждения:</h4>
-                        <div id="damages-container"></div>
-                    </div>
-                </div>
+                <button id="start-btn" class="btn btn-green">Начать осмотр</button>
+                <button id="stop-btn" class="btn btn-red" disabled>Завершить и получить отчет</button>
             </div>
 
-            <div style="text-align: center; margin-top: 30px;">
-                <button onclick="window.location.reload()" class="btn">Начать новый осмотр</button>
+            <div id="error-text" class="error-message"></div>
+
+            <div id="reportContainer">
+                <h2>Результаты Осмотра</h2>
+                <div id="report-content"></div>
             </div>
-        </section>
+        </div>
     </main>
     <script src="live-logic.js"></script>
 </body>

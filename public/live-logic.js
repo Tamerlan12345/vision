@@ -12,10 +12,10 @@ document.addEventListener('DOMContentLoaded', () => {
     let audioContext;
     let stream;
     let videoInterval;
-    let isRecording = false;
+    let isRecording = false; // Флаг отправки данных на сервер
     let nextAudioTime = 0;
 
-    // Новые переменные для записи видео и кадров
+    // Переменные для локальной записи и снапшотов
     let mediaRecorder;
     let recordedChunks = [];
     let snapshots = [];
@@ -65,20 +65,26 @@ document.addEventListener('DOMContentLoaded', () => {
                     const parts = json.serverContent.modelTurn.parts;
                     for (const part of parts) {
                         if (part.text) {
-                            if (part.text.includes('damages') || part.text.includes('FINISH_REPORT')) {
+                            // Проверяем, не является ли текст JSON-отчетом
+                            if (part.text.includes('"type": "report"') || part.text.includes('damages')) {
                                 handleReport(part.text);
-                                stopInspection();
+                                stopInspectionFull(); // Полная остановка
                             }
                         } else if (part.inlineData && part.inlineData.mimeType.startsWith('audio/')) {
-                            const base64Audio = part.inlineData.data;
-                            handleAudioResponse(base64Audio);
-                            updateStatus('ИИ говорит', 'status-speaking');
-                            setTimeout(() => updateStatus('Слушаю', 'status-listening'), 2000);
+                            // Воспроизводим аудио только если мы еще не завершили осмотр
+                            if (reportContainer.style.display === 'none') {
+                                const base64Audio = part.inlineData.data;
+                                handleAudioResponse(base64Audio);
+                                updateStatus('ИИ говорит', 'status-speaking');
+                                setTimeout(() => {
+                                    if(isRecording) updateStatus('Слушаю', 'status-listening');
+                                }, 2000);
+                            }
                         }
                     }
                 } else if (json.type === 'report') {
                      handleReport(json.text);
-                     stopInspection();
+                     stopInspectionFull();
                 }
             } catch (e) {
                 console.error("Error processing message:", e);
@@ -87,17 +93,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
         ws.onclose = () => {
             console.log('WebSocket Closed');
-            stopInspection();
+            stopInspectionFull();
         };
 
         ws.onerror = (error) => {
             console.error('WebSocket Error:', error);
             errorText.textContent = 'Ошибка соединения с сервером.';
-            stopInspection();
+            stopInspectionFull();
         };
     }
 
     function handleAudioResponse(base64Data) {
+        if (!audioContext) return;
         const binaryString = window.atob(base64Data);
         const len = binaryString.length;
         const bytes = new Uint8Array(len);
@@ -138,10 +145,9 @@ document.addEventListener('DOMContentLoaded', () => {
             videoPreview.srcObject = stream;
             isRecording = true;
 
-            // --- Local Recording & Snapshots ---
+            // Локальная запись
             recordedChunks = [];
             snapshots = [];
-            // Проверяем поддерживаемый MIME type
             const mimeType = MediaRecorder.isTypeSupported("video/webm; codecs=vp9")
                            ? "video/webm; codecs=vp9"
                            : "video/webm";
@@ -152,12 +158,12 @@ document.addEventListener('DOMContentLoaded', () => {
             };
             mediaRecorder.start();
 
-            // Делаем снапшоты каждые 3 секунды
+            // Снапшоты
             snapshotInterval = setInterval(() => {
-                captureSnapshot();
+                if(isRecording) captureSnapshot();
             }, 3000);
 
-            // --- Streaming to AI ---
+            // Потоковая передача аудио
             const source = audioContext.createMediaStreamSource(stream);
             const processor = audioContext.createScriptProcessor(4096, 1, 1);
             source.connect(processor);
@@ -173,6 +179,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }));
             };
 
+            // Потоковая передача видео (кадры)
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
 
@@ -184,17 +191,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 canvas.height = videoPreview.videoHeight;
                 ctx.drawImage(videoPreview, 0, 0);
 
-                // Качество 0.5 для скорости передачи
                 const base64Img = canvas.toDataURL('image/jpeg', 0.5).split(',')[1];
                 ws.send(JSON.stringify({
                     realtime_input: { media_chunks: [{ mime_type: "image/jpeg", data: base64Img }] }
                 }));
-            }, 500); // 2 FPS для ИИ
+            }, 500);
 
         } catch (err) {
             console.error('Error accessing media:', err);
-            errorText.textContent = `Ошибка доступа к камере/микрофону: ${err.message}`;
-            stopInspection();
+            errorText.textContent = `Ошибка доступа к камере: ${err.message}`;
+            stopInspectionFull();
         }
     }
 
@@ -217,19 +223,32 @@ document.addEventListener('DOMContentLoaded', () => {
         return window.btoa(binary);
     }
 
-    function stopInspection() {
-        isRecording = false;
+    // Частичная остановка (только запись), но оставляем WS открытым для приема отчета
+    function stopRecordingOnly() {
+        isRecording = false; // Блокируем отправку данных в onaudioprocess и setInterval
 
         if (mediaRecorder && mediaRecorder.state !== 'inactive') {
             mediaRecorder.stop();
         }
         if (snapshotInterval) clearInterval(snapshotInterval);
-
-        if (ws) ws.close();
-        if (stream) stream.getTracks().forEach(track => track.stop());
-        // ВАЖНО: Не закрываем AudioContext сразу, иначе не услышим вывод!
-        // if (audioContext) audioContext.close();
         if (videoInterval) clearInterval(videoInterval);
+
+        // Визуально глушим видео, чтобы пользователь понял, что запись остановлена
+        if (videoPreview.srcObject) {
+            videoPreview.style.opacity = '0.5';
+        }
+    }
+
+    // Полная остановка и очистка ресурсов
+    function stopInspectionFull() {
+        stopRecordingOnly();
+
+        if (ws) {
+            ws.onclose = null; // убираем хендлер чтобы не зациклиться
+            ws.close();
+        }
+        if (stream) stream.getTracks().forEach(track => track.stop());
+        if (audioContext) audioContext.close();
 
         startBtn.disabled = false;
         stopBtn.disabled = true;
@@ -237,66 +256,76 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function handleReport(text) {
+        // Очистка от Markdown и лишнего текста
+        let cleanText = text;
+
+        // 1. Убираем блоки кода ```json ... ```
+        cleanText = cleanText.replace(/```json/gi, '').replace(/```/g, '');
+
+        // 2. Ищем JSON объект от { до }
+        const firstBrace = cleanText.indexOf('{');
+        const lastBrace = cleanText.lastIndexOf('}');
+
+        if (firstBrace !== -1 && lastBrace !== -1) {
+            cleanText = cleanText.substring(firstBrace, lastBrace + 1);
+        }
+
         let data;
         try {
-            // Очистка от markdown (```json ... ```)
-            text = text.replace(/```json/g, '').replace(/```/g, '').trim();
-
-            const firstBrace = text.indexOf('{');
-            const lastBrace = text.lastIndexOf('}');
-            if (firstBrace !== -1 && lastBrace !== -1) {
-                text = text.substring(firstBrace, lastBrace + 1);
-            }
-            data = JSON.parse(text);
+            data = JSON.parse(cleanText);
         } catch (e) {
-            console.error("JSON parse error", e);
-            // Fallback for raw text
-            reportContent.innerHTML = `<p><strong>Ошибка парсинга отчета:</strong> ${text}</p>`;
-            stopInspection();
+            console.error("JSON parse error:", e);
+            console.log("Raw text received:", text);
+            reportContent.innerHTML = `<p style="color:red;"><strong>Ошибка обработки отчета:</strong> ИИ вернул некорректные данные.</p><pre>${text}</pre>`;
             reportContainer.style.display = 'block';
             if (cameraSection) cameraSection.style.display = 'none';
+            stopInspectionFull();
             return;
         }
 
-        // 1. ОСТАНОВКА ИНТЕРАКТИВА
-        stopInspection();
-
-        // 2. ГЕНЕРАЦИЯ HTML ОТЧЕТА
-        // Блок статуса
+        // ГЕНЕРАЦИЯ HTML ОТЧЕТА
         const statusColor = data.status === 'aborted' ? '#dc3545' : '#28a745';
         const statusText = data.status === 'aborted' ? 'ОСМОТР ПРЕРВАН' : 'ОСМОТР ЗАВЕРШЕН';
 
         let html = `
             <div style="text-align: center; margin-bottom: 20px;">
                 <h2 style="color: ${statusColor};">${statusText}</h2>
-                <p>${data.summary || ''}</p>
+                <p><strong>Резюме:</strong> ${data.summary || 'Нет описания'}</p>
             </div>
         `;
 
-        // Блок Фрод-факторов (Риски)
         if (data.fraud_factors && data.fraud_factors.length > 0) {
             html += `
             <div class="fraud-alert" style="background: #fff3cd; border: 1px solid #ffeeba; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-                <h3 style="color: #856404; margin-top: 0;">⚠️ Обнаружены факторы риска</h3>
+                <h3 style="color: #856404; margin-top: 0;">⚠️ Внимание</h3>
                 <ul>
                     ${data.fraud_factors.map(f => `<li>${f}</li>`).join('')}
                 </ul>
             </div>`;
         }
 
-        // Блок Таблица повреждений
         if (data.damages && data.damages.length > 0) {
             html += `<h3>Найденные повреждения</h3>
             <table border="1" style="width:100%; border-collapse: collapse; margin-bottom: 20px;">
-                <tr style="background: #f8f9fa;"><th>Деталь</th><th>Тип</th><th>Тяжесть</th></tr>
-                ${data.damages.map(d => `<tr><td>${d.part}</td><td>${d.type}</td><td>${d.severity}</td></tr>`).join('')}
+                <tr style="background: #f8f9fa;">
+                    <th style="padding: 8px;">Деталь</th>
+                    <th style="padding: 8px;">Тип</th>
+                    <th style="padding: 8px;">Описание</th>
+                </tr>
+                ${data.damages.map(d => `
+                    <tr>
+                        <td style="padding: 8px;">${d.part}</td>
+                        <td style="padding: 8px;">${d.type}</td>
+                        <td style="padding: 8px;">${d.description || '-'}</td>
+                    </tr>`).join('')}
             </table>`;
+        } else {
+             html += `<div style="padding: 15px; background: #e8f5e9; border-radius: 8px; color: #2e7d32; margin-bottom: 20px;">Повреждений не обнаружено.</div>`;
         }
 
-        // Блок Галерея (Снапшоты)
         if (snapshots && snapshots.length > 0) {
             html += `
-            <h3>Материалы осмотра</h3>
+            <h3>Снимки процесса</h3>
             <div style="display: flex; flex-wrap: wrap; gap: 10px;">
                 ${snapshots.map(src =>
                     `<img src="${src}" style="width: 100px; height: 75px; object-fit: cover; border: 1px solid #ddd; border-radius: 4px;">`
@@ -305,23 +334,27 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         reportContent.innerHTML = html;
-
-        // Показать модальное окно или секцию отчета
         reportContainer.style.display = 'block';
-        if (cameraSection) cameraSection.style.display = 'none'; // Скрыть камеру
-    }
+        if (cameraSection) cameraSection.style.display = 'none';
 
-    // Expose handleReport to window for testing/verification
-    window.handleReport = handleReport;
+        stopInspectionFull();
+    }
 
     // --- Event Listeners ---
     startBtn.addEventListener('click', () => {
         errorText.textContent = '';
         reportContainer.style.display = 'none';
+        cameraSection.style.display = 'block';
+        if (videoPreview) videoPreview.style.opacity = '1';
         connectWebSocket();
     });
 
     stopBtn.addEventListener('click', () => {
+        // 1. Мгновенно прекращаем запись (UX)
+        stopRecordingOnly();
+        updateStatus('Генерация отчета... Пожалуйста, подождите.', 'status-waiting');
+
+        // 2. Отправляем сигнал завершения на сервер
         if (ws && ws.readyState === WebSocket.OPEN) {
              const msg = {
                  client_content: {
@@ -330,10 +363,9 @@ document.addEventListener('DOMContentLoaded', () => {
                  }
             };
             ws.send(JSON.stringify(msg));
-            updateStatus('Генерация отчета...', 'status-waiting');
-            // Даем пару секунд на генерацию и потом закрываем, или ждем ответа
         } else {
-            stopInspection();
+            // Если сокет уже закрыт, просто останавливаемся
+            stopInspectionFull();
         }
     });
 });

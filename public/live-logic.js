@@ -15,23 +15,14 @@ document.addEventListener('DOMContentLoaded', () => {
     let isRecording = false;
     let nextAudioTime = 0;
 
-    // Для управления аудио-источниками (чтобы можно было их остановить)
-    let activeAudioSources = [];
-
-    // Переменные для записи видео и кадров
+    // Новые переменные для записи видео и кадров
     let mediaRecorder;
     let recordedChunks = [];
     let snapshots = [];
     let snapshotInterval;
-    let audioDestination; // Узел для записи смешанного звука
 
     async function initAudioContext() {
-        // Создаем контекст
-        audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
-
-        // Создаем "пункт назначения" для записи, куда будем направлять и микрофон, и голос ИИ
-        audioDestination = audioContext.createMediaStreamDestination();
-
+        audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
         if (audioContext.state === 'suspended') {
             await audioContext.resume();
         }
@@ -74,24 +65,20 @@ document.addEventListener('DOMContentLoaded', () => {
                     const parts = json.serverContent.modelTurn.parts;
                     for (const part of parts) {
                         if (part.text) {
-                            if (part.text.includes('damages') || part.text.includes('type": "report"')) {
+                            if (part.text.includes('damages') || part.text.includes('FINISH_REPORT')) {
                                 handleReport(part.text);
+                                stopInspection();
                             }
                         } else if (part.inlineData && part.inlineData.mimeType.startsWith('audio/')) {
-                            // Если мы уже не записываем (нажали стоп), не воспроизводить новое аудио
-                            if (!isRecording && !stopBtn.disabled) return;
-
                             const base64Audio = part.inlineData.data;
                             handleAudioResponse(base64Audio);
                             updateStatus('ИИ говорит', 'status-speaking');
-                            // Сброс статуса через примерное время (можно улучшить, зная длительность)
-                            setTimeout(() => {
-                                if(isRecording) updateStatus('Слушаю', 'status-listening');
-                            }, 3000);
+                            setTimeout(() => updateStatus('Слушаю', 'status-listening'), 2000);
                         }
                     }
                 } else if (json.type === 'report') {
                      handleReport(json.text);
+                     stopInspection();
                 }
             } catch (e) {
                 console.error("Error processing message:", e);
@@ -100,8 +87,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         ws.onclose = () => {
             console.log('WebSocket Closed');
-            // Если соединение закрылось само, но мы еще не формировали отчет - останавливаемся
-            if (isRecording) stopInspection();
+            stopInspection();
         };
 
         ws.onerror = (error) => {
@@ -112,8 +98,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function handleAudioResponse(base64Data) {
-        if (!audioContext) return;
-
         const binaryString = window.atob(base64Data);
         const len = binaryString.length;
         const bytes = new Uint8Array(len);
@@ -126,36 +110,14 @@ document.addEventListener('DOMContentLoaded', () => {
              floatData[i] = int16Data[i] / 32768.0;
         }
         const buffer = audioContext.createBuffer(1, floatData.length, 24000);
-
+        buffer.getChannelData(0).set(floatData);
         const source = audioContext.createBufferSource();
         source.buffer = buffer;
-
-        // 1. Подключаем к динамикам (чтобы слышал пользователь)
         source.connect(audioContext.destination);
-        // 2. Подключаем к destination записи (чтобы попало в видео)
-        source.connect(audioDestination);
-
         const currentTime = audioContext.currentTime;
         if (nextAudioTime < currentTime) nextAudioTime = currentTime;
         source.start(nextAudioTime);
         nextAudioTime += buffer.duration;
-
-        // Сохраняем ссылку на источник, чтобы можно было остановить
-        source.onended = () => {
-            activeAudioSources = activeAudioSources.filter(s => s !== source);
-        };
-        activeAudioSources.push(source);
-    }
-
-    function stopAllAudio() {
-        // Останавливаем все активные источники речи
-        activeAudioSources.forEach(source => {
-            try { source.stop(); } catch(e) {}
-        });
-        activeAudioSources = [];
-
-        // Сбрасываем планировщик времени
-        if(audioContext) nextAudioTime = audioContext.currentTime;
     }
 
     function updateStatus(text, className) {
@@ -168,8 +130,6 @@ document.addEventListener('DOMContentLoaded', () => {
     async function startMediaCapture() {
         try {
             await initAudioContext();
-
-            // Получаем потоки с микрофона и камеры
             stream = await navigator.mediaDevices.getUserMedia({
                 audio: { channelCount: 1, sampleRate: 16000 },
                 video: { width: { ideal: 640 }, facingMode: 'environment' }
@@ -178,41 +138,30 @@ document.addEventListener('DOMContentLoaded', () => {
             videoPreview.srcObject = stream;
             isRecording = true;
 
-            // --- Настройка записи Видео (Картинка + Микс Звука) ---
+            // --- Local Recording & Snapshots ---
             recordedChunks = [];
             snapshots = [];
-
-            // Создаем микс из микрофона пользователя
-            const micSource = audioContext.createMediaStreamSource(stream);
-            micSource.connect(audioDestination); // Микрофон -> в запись
-
-            // Создаем комбинированный поток: Видео с камеры + Аудио с микшера (Мик + ИИ)
-            const combinedStream = new MediaStream([
-                ...stream.getVideoTracks(),
-                ...audioDestination.stream.getAudioTracks()
-            ]);
-
+            // Проверяем поддерживаемый MIME type
             const mimeType = MediaRecorder.isTypeSupported("video/webm; codecs=vp9")
                            ? "video/webm; codecs=vp9"
                            : "video/webm";
 
-            mediaRecorder = new MediaRecorder(combinedStream, { mimeType });
+            mediaRecorder = new MediaRecorder(stream, { mimeType });
             mediaRecorder.ondataavailable = (e) => {
                 if (e.data.size > 0) recordedChunks.push(e.data);
             };
             mediaRecorder.start();
 
-            // Снапшоты каждые 2 секунды для "нарезки"
+            // Делаем снапшоты каждые 3 секунды
             snapshotInterval = setInterval(() => {
                 captureSnapshot();
-            }, 2000);
+            }, 3000);
 
-            // --- Потоковая передача аудио на ИИ (только микрофон) ---
-            // Для ИИ нам нужен только голос пользователя, без голоса самого ИИ (эхоподавление)
-            // Поэтому берем micSource отдельно
+            // --- Streaming to AI ---
+            const source = audioContext.createMediaStreamSource(stream);
             const processor = audioContext.createScriptProcessor(4096, 1, 1);
-            micSource.connect(processor);
-            processor.connect(audioContext.destination); // hack for chrome to activate processor
+            source.connect(processor);
+            processor.connect(audioContext.destination);
 
             processor.onaudioprocess = (e) => {
                 if (!isRecording || ws.readyState !== WebSocket.OPEN) return;
@@ -224,7 +173,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 }));
             };
 
-            // Отправка кадров на ИИ
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
 
@@ -236,11 +184,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 canvas.height = videoPreview.videoHeight;
                 ctx.drawImage(videoPreview, 0, 0);
 
+                // Качество 0.5 для скорости передачи
                 const base64Img = canvas.toDataURL('image/jpeg', 0.5).split(',')[1];
                 ws.send(JSON.stringify({
                     realtime_input: { media_chunks: [{ mime_type: "image/jpeg", data: base64Img }] }
                 }));
-            }, 500);
+            }, 500); // 2 FPS для ИИ
 
         } catch (err) {
             console.error('Error accessing media:', err);
@@ -254,12 +203,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const canvas = document.createElement('canvas');
         canvas.width = videoPreview.videoWidth;
         canvas.height = videoPreview.videoHeight;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(videoPreview, 0, 0);
-        // Добавим timestamp на фото
-        ctx.fillStyle = "white";
-        ctx.font = "16px Arial";
-        ctx.fillText(new Date().toLocaleTimeString(), 10, 20);
+        canvas.getContext('2d').drawImage(videoPreview, 0, 0);
         snapshots.push(canvas.toDataURL('image/jpeg', 0.8));
     }
 
@@ -276,22 +220,16 @@ document.addEventListener('DOMContentLoaded', () => {
     function stopInspection() {
         isRecording = false;
 
-        // Останавливаем запись
         if (mediaRecorder && mediaRecorder.state !== 'inactive') {
             mediaRecorder.stop();
         }
         if (snapshotInterval) clearInterval(snapshotInterval);
-        if (videoInterval) clearInterval(videoInterval);
 
-        // Закрываем сокет
         if (ws) ws.close();
-
-        // Останавливаем потоки камеры
         if (stream) stream.getTracks().forEach(track => track.stop());
-
-        // Важно: не закрываем аудиоконтекст полностью, пока не проиграем прощание (если нужно),
-        // но здесь мы решили прерывать всё.
-        stopAllAudio();
+        // ВАЖНО: Не закрываем AudioContext сразу, иначе не услышим вывод!
+        // if (audioContext) audioContext.close();
+        if (videoInterval) clearInterval(videoInterval);
 
         startBtn.disabled = false;
         stopBtn.disabled = true;
@@ -299,14 +237,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function handleReport(text) {
-        // Останавливаем всё немедленно
-        stopInspection();
-        stopAllAudio();
-
         let data;
         try {
-            // Очистка от markdown
+            // Очистка от markdown (```json ... ```)
             text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+
             const firstBrace = text.indexOf('{');
             const lastBrace = text.lastIndexOf('}');
             if (firstBrace !== -1 && lastBrace !== -1) {
@@ -315,105 +250,71 @@ document.addEventListener('DOMContentLoaded', () => {
             data = JSON.parse(text);
         } catch (e) {
             console.error("JSON parse error", e);
-            reportContent.innerHTML = `<p class="error-message">Ошибка обработки отчета. Сырые данные: ${text}</p>`;
-            finalizeUI();
+            // Fallback for raw text
+            reportContent.innerHTML = `<p><strong>Ошибка парсинга отчета:</strong> ${text}</p>`;
+            stopInspection();
+            reportContainer.style.display = 'block';
+            if (cameraSection) cameraSection.style.display = 'none';
             return;
         }
 
-        // --- ГЕНЕРАЦИЯ HTML ОТЧЕТА ---
+        // 1. ОСТАНОВКА ИНТЕРАКТИВА
+        stopInspection();
 
+        // 2. ГЕНЕРАЦИЯ HTML ОТЧЕТА
+        // Блок статуса
         const statusColor = data.status === 'aborted' ? '#dc3545' : '#28a745';
-        const statusText = data.status === 'aborted' ? 'ОСМОТР ПРЕРВАН' : 'ОСМОТР УСПЕШНО ЗАВЕРШЕН';
+        const statusText = data.status === 'aborted' ? 'ОСМОТР ПРЕРВАН' : 'ОСМОТР ЗАВЕРШЕН';
 
         let html = `
-            <div style="text-align: center; margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 15px;">
-                <h2 style="color: ${statusColor}; margin: 0;">${statusText}</h2>
-                <p style="font-size: 1.1em; color: #555;">${data.summary || ''}</p>
+            <div style="text-align: center; margin-bottom: 20px;">
+                <h2 style="color: ${statusColor};">${statusText}</h2>
+                <p>${data.summary || ''}</p>
             </div>
         `;
 
-        // Фрод-факторы
+        // Блок Фрод-факторов (Риски)
         if (data.fraud_factors && data.fraud_factors.length > 0) {
             html += `
-            <div style="background: #fff3cd; border: 1px solid #ffeeba; padding: 15px; border-radius: 8px; margin-bottom: 25px;">
-                <h3 style="color: #856404; margin-top: 0; display:flex; align-items:center;">
-                    ⚠️ Фрод-факторы (Риски)
-                </h3>
-                <ul style="margin-bottom: 0;">
+            <div class="fraud-alert" style="background: #fff3cd; border: 1px solid #ffeeba; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="color: #856404; margin-top: 0;">⚠️ Обнаружены факторы риска</h3>
+                <ul>
                     ${data.fraud_factors.map(f => `<li>${f}</li>`).join('')}
                 </ul>
             </div>`;
         }
 
-        // Таблица повреждений
+        // Блок Таблица повреждений
         if (data.damages && data.damages.length > 0) {
-            html += `<h3>📋 Найденные повреждения</h3>
-            <div style="overflow-x: auto;">
-                <table style="width:100%; border-collapse: collapse; margin-bottom: 25px;">
-                    <thead>
-                        <tr style="background: #f8f9fa; text-align: left;">
-                            <th style="padding: 10px; border: 1px solid #dee2e6;">Деталь</th>
-                            <th style="padding: 10px; border: 1px solid #dee2e6;">Тип</th>
-                            <th style="padding: 10px; border: 1px solid #dee2e6;">Описание</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${data.damages.map(d => `
-                            <tr>
-                                <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>${d.part}</strong></td>
-                                <td style="padding: 10px; border: 1px solid #dee2e6;">${d.type}</td>
-                                <td style="padding: 10px; border: 1px solid #dee2e6;">${d.description}</td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            </div>`;
-        } else {
-            html += `<p style="color: green; font-weight: bold;">✅ Повреждений не обнаружено.</p>`;
+            html += `<h3>Найденные повреждения</h3>
+            <table border="1" style="width:100%; border-collapse: collapse; margin-bottom: 20px;">
+                <tr style="background: #f8f9fa;"><th>Деталь</th><th>Тип</th><th>Тяжесть</th></tr>
+                ${data.damages.map(d => `<tr><td>${d.part}</td><td>${d.type}</td><td>${d.severity}</td></tr>`).join('')}
+            </table>`;
         }
 
-        // Видео осмотра
-        // Создаем Blob из записанных чанков
-        const blob = new Blob(recordedChunks, { type: 'video/webm' });
-        const videoUrl = URL.createObjectURL(blob);
-
-        html += `
-        <div style="margin-bottom: 30px;">
-            <h3>🎥 Полная видеозапись осмотра (со звуком)</h3>
-            <p style="font-size: 0.9em; color: #666;">Запись включает ваш голос и ответы ассистента.</p>
-            <video controls src="${videoUrl}" style="width: 100%; border-radius: 8px; background: #000;"></video>
-            <a href="${videoUrl}" download="inspection-video.webm" style="display:inline-block; margin-top:5px; color: #0055A5;">Скачать видео</a>
-        </div>
-        `;
-
-        // Галерея (Покадровая нарезка)
+        // Блок Галерея (Снапшоты)
         if (snapshots && snapshots.length > 0) {
             html += `
-            <h3>📷 Покадровая нарезка (Хронология)</h3>
-            <p style="font-size: 0.9em; color: #666;">Кадры, сделанные автоматически каждые 2 секунды:</p>
-            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px;">
-                ${snapshots.map((src, idx) =>
-                    `<div style="text-align: center;">
-                        <img src="${src}" onclick="window.open(this.src)" style="width: 100%; aspect-ratio: 4/3; object-fit: cover; border: 1px solid #ddd; border-radius: 4px; cursor: pointer;">
-                        <span style="font-size: 10px; color: #777;">Кадр ${idx+1}</span>
-                    </div>`
+            <h3>Материалы осмотра</h3>
+            <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+                ${snapshots.map(src =>
+                    `<img src="${src}" style="width: 100px; height: 75px; object-fit: cover; border: 1px solid #ddd; border-radius: 4px;">`
                 ).join('')}
             </div>`;
         }
 
         reportContent.innerHTML = html;
-        finalizeUI();
-    }
 
-    function finalizeUI() {
+        // Показать модальное окно или секцию отчета
         reportContainer.style.display = 'block';
-        cameraSection.style.display = 'none';
-
-        // Прокрутка к отчету
-        reportContainer.scrollIntoView({ behavior: 'smooth' });
+        if (cameraSection) cameraSection.style.display = 'none'; // Скрыть камеру
     }
 
-    // --- Listeners ---
+    // Expose handleReport to window for testing/verification
+    window.handleReport = handleReport;
+
+    // --- Event Listeners ---
     startBtn.addEventListener('click', () => {
         errorText.textContent = '';
         reportContainer.style.display = 'none';
@@ -421,9 +322,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     stopBtn.addEventListener('click', () => {
-        // МГНОВЕННОЕ ПРЕРЫВАНИЕ АССИСТЕНТА
-        stopAllAudio();
-
         if (ws && ws.readyState === WebSocket.OPEN) {
              const msg = {
                  client_content: {
@@ -432,8 +330,8 @@ document.addEventListener('DOMContentLoaded', () => {
                  }
             };
             ws.send(JSON.stringify(msg));
-            updateStatus('Анализ и генерация отчета...', 'status-waiting');
-            stopBtn.disabled = true; // Блокируем кнопку, чтобы не жали дважды
+            updateStatus('Генерация отчета...', 'status-waiting');
+            // Даем пару секунд на генерацию и потом закрываем, или ждем ответа
         } else {
             stopInspection();
         }

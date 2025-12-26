@@ -226,7 +226,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (ws) ws.close();
         if (stream) stream.getTracks().forEach(track => track.stop());
-        if (audioContext) audioContext.close();
+        // ВАЖНО: Не закрываем AudioContext сразу, иначе не услышим вывод!
+        // if (audioContext) audioContext.close();
         if (videoInterval) clearInterval(videoInterval);
 
         startBtn.disabled = false;

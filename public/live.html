@@ -153,20 +153,22 @@
             <h1>Интерактивный Осмотр с ИИ</h1>
             <p>Включите камеру и следуйте голосовым указаниям инспектора.</p>
 
-            <div id="status-indicator" class="status-waiting">Статус: Ожидание</div>
+            <div id="camera-section">
+                <div id="status-indicator" class="status-waiting">Статус: Ожидание</div>
 
-            <div class="video-container">
-                <video id="video-preview" playsinline autoplay muted></video>
+                <div class="video-container">
+                    <video id="video-preview" playsinline autoplay muted></video>
+                </div>
+
+                <div class="controls">
+                    <button id="start-btn" class="btn btn-green">Начать осмотр</button>
+                    <button id="stop-btn" class="btn btn-red" disabled>Завершить и получить отчет</button>
+                </div>
+
+                <div id="error-text" class="error-message"></div>
             </div>
 
-            <div class="controls">
-                <button id="start-btn" class="btn btn-green">Начать осмотр</button>
-                <button id="stop-btn" class="btn btn-red" disabled>Завершить и получить отчет</button>
-            </div>
-
-            <div id="error-text" class="error-message"></div>
-
-            <div id="reportContainer">
+            <div id="report-section" style="display: none;">
                 <h2>Результаты Осмотра</h2>
                 <div id="report-content"></div>
             </div>

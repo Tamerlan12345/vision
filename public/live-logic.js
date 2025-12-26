@@ -3,7 +3,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const startBtn = document.getElementById('start-btn');
     const stopBtn = document.getElementById('stop-btn');
     const statusIndicator = document.getElementById('status-indicator');
-    const reportContainer = document.getElementById('reportContainer');
+    const reportContainer = document.getElementById('report-section');
+    const cameraSection = document.getElementById('camera-section');
     const reportContent = document.getElementById('report-content');
     const errorText = document.getElementById('error-text');
 
@@ -236,29 +237,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function handleReport(text) {
-        reportContainer.style.display = 'block';
-
-        // 1. Отображение видео и кадров
-        let mediaHtml = '<h3>Запись осмотра</h3>';
-
-        // Видео
-        if (recordedChunks.length > 0) {
-            const blob = new Blob(recordedChunks, { type: 'video/webm' });
-            const videoUrl = URL.createObjectURL(blob);
-            mediaHtml += `<div style="margin-bottom: 20px;"><video src="${videoUrl}" controls style="width: 100%; max-width: 600px; border-radius: 8px;"></video></div>`;
-        }
-
-        // Раскадровка
-        if (snapshots.length > 0) {
-            mediaHtml += '<h4>Ключевые кадры (Раскадровка)</h4><div style="display: flex; gap: 10px; overflow-x: auto; padding-bottom: 10px;">';
-            snapshots.forEach((snap, idx) => {
-                mediaHtml += `<img src="${snap}" style="height: 100px; border-radius: 4px; border: 1px solid #ccc;">`;
-            });
-            mediaHtml += '</div>';
-        }
-
-        // 2. Парсинг и отображение JSON отчета
-        let jsonHtml = '';
+        let data;
         try {
             // Очистка от markdown (```json ... ```)
             text = text.replace(/```json/g, '').replace(/```/g, '').trim();
@@ -268,38 +247,72 @@ document.addEventListener('DOMContentLoaded', () => {
             if (firstBrace !== -1 && lastBrace !== -1) {
                 text = text.substring(firstBrace, lastBrace + 1);
             }
-
-            const json = JSON.parse(text);
-
-            let tableHtml = '<table border="1" style="width:100%; border-collapse: collapse; margin-top: 15px;">';
-            if (json.damages && json.damages.length > 0) {
-                tableHtml += '<tr style="background:#f4f4f4;"><th style="padding:8px;">Деталь</th><th style="padding:8px;">Тип</th><th style="padding:8px;">Важность</th></tr>';
-                json.damages.forEach(d => {
-                    tableHtml += `<tr>
-                        <td style="padding:8px;">${d.part || '-'}</td>
-                        <td style="padding:8px;">${d.type || '-'}</td>
-                        <td style="padding:8px;">${d.severity || '-'}</td>
-                    </tr>`;
-                });
-                tableHtml += '</table>';
-            } else {
-                tableHtml = '<p>Повреждений не найдено.</p>';
-            }
-
-            let summaryHtml = '';
-            if (json.summary) {
-                summaryHtml = `<div style="background: #e3f2fd; padding: 15px; border-radius: 8px; margin: 10px 0;"><strong>Итог ИИ:</strong> ${json.summary}</div>`;
-            }
-
-            jsonHtml = summaryHtml + tableHtml;
-
+            data = JSON.parse(text);
         } catch (e) {
-            console.warn("JSON Parse Error:", e);
-            jsonHtml = `<p><strong>Сырой ответ ИИ:</strong> ${text}</p>`;
+            console.error("JSON parse error", e);
+            // Fallback for raw text
+            reportContent.innerHTML = `<p><strong>Ошибка парсинга отчета:</strong> ${text}</p>`;
+            stopInspection();
+            reportContainer.style.display = 'block';
+            if (cameraSection) cameraSection.style.display = 'none';
+            return;
         }
 
-        reportContent.innerHTML = mediaHtml + jsonHtml;
+        // 1. ОСТАНОВКА ИНТЕРАКТИВА
+        stopInspection();
+
+        // 2. ГЕНЕРАЦИЯ HTML ОТЧЕТА
+        // Блок статуса
+        const statusColor = data.status === 'aborted' ? '#dc3545' : '#28a745';
+        const statusText = data.status === 'aborted' ? 'ОСМОТР ПРЕРВАН' : 'ОСМОТР ЗАВЕРШЕН';
+
+        let html = `
+            <div style="text-align: center; margin-bottom: 20px;">
+                <h2 style="color: ${statusColor};">${statusText}</h2>
+                <p>${data.summary || ''}</p>
+            </div>
+        `;
+
+        // Блок Фрод-факторов (Риски)
+        if (data.fraud_factors && data.fraud_factors.length > 0) {
+            html += `
+            <div class="fraud-alert" style="background: #fff3cd; border: 1px solid #ffeeba; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="color: #856404; margin-top: 0;">⚠️ Обнаружены факторы риска</h3>
+                <ul>
+                    ${data.fraud_factors.map(f => `<li>${f}</li>`).join('')}
+                </ul>
+            </div>`;
+        }
+
+        // Блок Таблица повреждений
+        if (data.damages && data.damages.length > 0) {
+            html += `<h3>Найденные повреждения</h3>
+            <table border="1" style="width:100%; border-collapse: collapse; margin-bottom: 20px;">
+                <tr style="background: #f8f9fa;"><th>Деталь</th><th>Тип</th><th>Тяжесть</th></tr>
+                ${data.damages.map(d => `<tr><td>${d.part}</td><td>${d.type}</td><td>${d.severity}</td></tr>`).join('')}
+            </table>`;
+        }
+
+        // Блок Галерея (Снапшоты)
+        if (snapshots && snapshots.length > 0) {
+            html += `
+            <h3>Материалы осмотра</h3>
+            <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+                ${snapshots.map(src =>
+                    `<img src="${src}" style="width: 100px; height: 75px; object-fit: cover; border: 1px solid #ddd; border-radius: 4px;">`
+                ).join('')}
+            </div>`;
+        }
+
+        reportContent.innerHTML = html;
+
+        // Показать модальное окно или секцию отчета
+        reportContainer.style.display = 'block';
+        if (cameraSection) cameraSection.style.display = 'none'; // Скрыть камеру
     }
+
+    // Expose handleReport to window for testing/verification
+    window.handleReport = handleReport;
 
     // --- Event Listeners ---
     startBtn.addEventListener('click', () => {

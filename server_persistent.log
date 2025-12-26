@@ -1,0 +1,6 @@
+
+> netlify-photo-analysis@1.0.0 start
+> node src/server.js
+
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  override existing env vars with { override: true }
+Server is running on port 3000

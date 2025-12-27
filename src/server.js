@@ -38,7 +38,7 @@ wss.on('connection', (wsClient) => {
             setup: {
                 model: "models/gemini-2.0-flash-exp",
                 generation_config: {
-                    response_modalities: ["AUDIO"], // Модель отвечает голосом
+                    response_modalities: ["AUDIO", "TEXT"], // ВАЖНО: Разрешаем оба канала
                     speech_config: {
                         voice_config: { prebuilt_voice_config: { voice_name: "Kore" } }
                     }
@@ -75,6 +75,10 @@ wss.on('connection', (wsClient) => {
      {"part": "Бампер", "type": "Царапина", "description": "Слева"}
   ]
 }
+
+ВАЖНО - ПРИ ЗАВЕРШЕНИИ:
+1. КАНАЛ АУДИО: Скажи "Осмотр завершен".
+2. КАНАЛ ТЕКСТА: Отправь только JSON. НЕ ЧИТАЙ ЕГО ВСЛУХ.
 `
                     }]
                 }
@@ -97,18 +101,18 @@ wss.on('connection', (wsClient) => {
             const strData = data.toString();
             const json = JSON.parse(strData);
 
-            // Обработка текстового ответа (JSON отчета)
-            if (json.serverContent?.modelTurn?.parts?.[0]?.text) {
-                const text = json.serverContent.modelTurn.parts[0].text;
-                // Отправляем клиенту как спец-сообщение
-                wsClient.send(JSON.stringify({ type: 'report', text: text }));
+            // Проверяем, есть ли текстовый ответ (это наш JSON отчета)
+            if (json.serverContent?.modelTurn?.parts) {
+                json.serverContent.modelTurn.parts.forEach(part => {
+                    if (part.text) {
+                        // Отправляем на фронтенд сигнал для закрытия окна и показа таблицы
+                        wsClient.send(JSON.stringify({ type: 'report', text: part.text }));
+                    }
+                });
             }
-
-            // Пробрасываем всё сообщение целиком (там может быть и аудио, и текст)
+            // Пересылаем аудио данные клиенту как обычно
             wsClient.send(data);
-
         } catch (e) {
-            // Если это бинарное аудио или ошибка парсинга — просто пересылаем
             wsClient.send(data);
         }
     });

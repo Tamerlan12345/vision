@@ -15,6 +15,9 @@ document.addEventListener('DOMContentLoaded', () => {
     let isRecording = false; // Флаг отправки данных на сервер
     let nextAudioTime = 0;
 
+    // Флаг успешного завершения осмотра (получен отчет)
+    let inspectionCompleted = false;
+
     // Переменные для локальной записи и снапшотов
     let mediaRecorder;
     let recordedChunks = [];
@@ -40,6 +43,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- WebSocket Logic ---
 
     function connectWebSocket() {
+        // Сброс флага при новом подключении
+        inspectionCompleted = false;
+
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${protocol}//${window.location.host}/ws/live-inspection`;
 
@@ -47,7 +53,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         ws.onopen = () => {
             console.log('WebSocket Connected');
-            updateStatus('Слушаю', 'status-listening');
+            updateStatus('Идет осмотр', 'status-listening');
             startBtn.disabled = true;
             stopBtn.disabled = false;
             startMediaCapture();
@@ -61,12 +67,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 const json = JSON.parse(data);
 
+                if (json.type === 'error') {
+                     // Обработка явной ошибки от сервера
+                     console.error("Server error:", json.message);
+                     updateStatus(`Ошибка: ${json.message}`, 'status-error');
+                     // Если это ошибка, осмотр не считается успешным
+                     stopInspectionFull(false);
+                     return;
+                }
+
                 if (json.serverContent?.modelTurn?.parts) {
                     const parts = json.serverContent.modelTurn.parts;
                     for (const part of parts) {
                         if (part.text) {
                             // Проверяем, не является ли текст JSON-отчетом
                             if (part.text.includes('"type": "report"') || part.text.includes('damages')) {
+                                inspectionCompleted = true; // Отчет получен
                                 handleReport(part.text);
                                 stopInspectionFull(); // Полная остановка
                             }
@@ -77,12 +93,13 @@ document.addEventListener('DOMContentLoaded', () => {
                                 handleAudioResponse(base64Audio);
                                 updateStatus('ИИ говорит', 'status-speaking');
                                 setTimeout(() => {
-                                    if(isRecording) updateStatus('Слушаю', 'status-listening');
+                                    if(isRecording) updateStatus('Идет осмотр', 'status-listening');
                                 }, 2000);
                             }
                         }
                     }
                 } else if (json.type === 'report') {
+                     inspectionCompleted = true; // Отчет получен
                      handleReport(json.text);
                      stopInspectionFull();
                 }
@@ -91,15 +108,28 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         };
 
-        ws.onclose = () => {
-            console.log('WebSocket Closed');
-            stopInspectionFull();
+        ws.onclose = (event) => {
+            console.log('WebSocket Closed', event.code, event.reason);
+
+            // Если соединение закрыто, проверяем был ли получен отчет
+            if (inspectionCompleted) {
+                 updateStatus('Осмотр завершен', 'status-success');
+                 // Можно добавить зеленый цвет через стиль, если нет класса status-success
+                 statusIndicator.style.color = 'green';
+            } else {
+                 updateStatus('Связь потеряна', 'status-error');
+                 statusIndicator.style.color = 'red';
+                 errorText.textContent = 'Соединение с сервером разорвано.';
+            }
+
+            stopInspectionFull(false); // false = не обновлять статус "Завершено" внутри функции
         };
 
         ws.onerror = (error) => {
             console.error('WebSocket Error:', error);
             errorText.textContent = 'Ошибка соединения с сервером.';
-            stopInspectionFull();
+            updateStatus('Ошибка соединения', 'status-error');
+            stopInspectionFull(false);
         };
     }
 
@@ -130,6 +160,11 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateStatus(text, className) {
         statusIndicator.textContent = `Статус: ${text}`;
         statusIndicator.className = className;
+
+        // Сброс inline стилей, если они были установлены
+        if (className !== 'status-success' && className !== 'status-error') {
+             statusIndicator.style.color = '';
+        }
     }
 
     // --- Media Capture ---
@@ -200,7 +235,8 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (err) {
             console.error('Error accessing media:', err);
             errorText.textContent = `Ошибка доступа к камере: ${err.message}`;
-            stopInspectionFull();
+            updateStatus('Ошибка доступа к камере', 'status-error');
+            stopInspectionFull(false);
         }
     }
 
@@ -240,7 +276,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Полная остановка и очистка ресурсов
-    function stopInspectionFull() {
+    function stopInspectionFull(updateStatusText = true) {
         stopRecordingOnly();
 
         if (ws) {
@@ -252,7 +288,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         startBtn.disabled = false;
         stopBtn.disabled = true;
-        updateStatus('Завершено', 'status-waiting');
+
+        if (updateStatusText) {
+             updateStatus('Завершено', 'status-waiting');
+        }
     }
 
     function handleReport(text) {
@@ -337,7 +376,9 @@ document.addEventListener('DOMContentLoaded', () => {
         reportContainer.style.display = 'block';
         if (cameraSection) cameraSection.style.display = 'none';
 
-        stopInspectionFull();
+        // Мы уже завершили (получили отчет), так что можно закрывать соединение.
+        // Передаем false чтобы не перезаписать "Осмотр завершен" на "Завершено"
+        stopInspectionFull(false);
     }
 
     // --- Event Listeners ---
@@ -346,6 +387,8 @@ document.addEventListener('DOMContentLoaded', () => {
         reportContainer.style.display = 'none';
         cameraSection.style.display = 'block';
         if (videoPreview) videoPreview.style.opacity = '1';
+
+        updateStatus('Подключение к ИИ...', 'status-waiting'); // Сразу меняем статус
         connectWebSocket();
     });
 

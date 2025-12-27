@@ -28,6 +28,13 @@ const wss = new WebSocket.Server({ server, path: '/ws/live-inspection' });
 wss.on('connection', (wsClient) => {
     console.log("Client connected. Establishing bridge to Gemini...");
 
+    if (!process.env.GEMINI_API_KEY) {
+        console.error("Error: GEMINI_API_KEY is missing.");
+        wsClient.send(JSON.stringify({ type: "error", message: "Server API Key missing" }));
+        wsClient.close();
+        return;
+    }
+
     const geminiWs = new WebSocket(`wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${process.env.GEMINI_API_KEY}`);
 
     geminiWs.on('open', () => {
@@ -126,12 +133,22 @@ wss.on('connection', (wsClient) => {
         if (geminiWs.readyState === WebSocket.OPEN) geminiWs.close();
     });
 
-    geminiWs.on('close', () => {
-        console.log("Gemini connection closed.");
-        if (wsClient.readyState === WebSocket.OPEN) wsClient.close();
+    geminiWs.on('close', (code, reason) => {
+        console.log(`Gemini connection closed. Code: ${code}, Reason: ${reason}`);
+        if (wsClient.readyState === WebSocket.OPEN) {
+             if (code !== 1000) {
+                 wsClient.send(JSON.stringify({ type: "error", message: "Gemini connection closed unexpectedly" }));
+             }
+             wsClient.close();
+        }
     });
 
-    geminiWs.on('error', (err) => console.error("Gemini Error:", err));
+    geminiWs.on('error', (err) => {
+        console.error("Gemini Error:", err);
+        if (wsClient.readyState === WebSocket.OPEN) {
+            wsClient.send(JSON.stringify({ type: "error", message: "Error connecting to AI service" }));
+        }
+    });
 });
 
 server.listen(PORT, () => {

@@ -45,43 +45,64 @@ wss.on('connection', (wsClient) => {
             setup: {
                 model: "models/gemini-2.0-flash-exp",
                 generation_config: {
-                    response_modalities: ["AUDIO", "TEXT"], // ВАЖНО: Разрешаем оба канала
+                    response_modalities: ["AUDIO"], // STRICTLY AUDIO
                     speech_config: {
                         voice_config: { prebuilt_voice_config: { voice_name: "Kore" } }
                     }
                 },
+                tools: [
+                    {
+                        function_declarations: [
+                            {
+                                name: "submit_report",
+                                description: "Submits the final inspection report.",
+                                parameters: {
+                                    type: "OBJECT",
+                                    properties: {
+                                        summary: { type: "STRING", description: "Final summary of the inspection." },
+                                        status: { type: "STRING", enum: ["success", "aborted"], description: "Status of the inspection." },
+                                        damages: {
+                                            type: "ARRAY",
+                                            items: {
+                                                type: "OBJECT",
+                                                properties: {
+                                                    part: { type: "STRING", description: "Car part name." },
+                                                    type: { type: "STRING", description: "Type of damage." },
+                                                    description: { type: "STRING", description: "Description of damage." }
+                                                },
+                                                required: ["part", "type"]
+                                            }
+                                        },
+                                        fraud_factors: {
+                                            type: "ARRAY",
+                                            items: { type: "STRING" },
+                                            description: "List of suspicious factors."
+                                        }
+                                    },
+                                    required: ["summary", "status", "damages"]
+                                }
+                            }
+                        ]
+                    }
+                ],
                 system_instruction: {
                     parts: [{
                         text: `
-ТЫ — ПРОФЕССИОНАЛЬНЫЙ СТРАХОВОЙ ИНСПЕКТОР.
+Роль: Страховой инспектор.
+Язык: Русский.
 
-ЗАДАЧА:
-Провести видеоосмотр автомобиля. Управляй человеком, проси показать детали (VIN, пробег, повреждения).
+Сценарий:
+1. Приветствие.
+2. Просьба показать VIN.
+3. Осмотр автомобиля по кругу.
+4. Детализация повреждений (если есть).
+5. Завершение.
 
-ПРАВИЛА:
-1. Будь краток и вежлив.
-2. Если видишь повреждение, попроси показать ближе.
-3. В конце скажи: "Спасибо, осмотр завершен".
-
-ВАЖНО - ФОРМАТ ЗАВЕРШЕНИЯ (ТРИГГЕР "FINISH_REPORT"):
-Когда осмотр окончен или получена команда "FINISH_REPORT", ты должен сделать ДВА действия в одном ответе:
-
-ШАГ 1 (ГОЛОС):
-Генерируй ТОЛЬКО фразу завершения. Например: "Осмотр окончен, формирую отчет".
-НИКОГДА НЕ ЧИТАЙ JSON ИЛИ ТЕХНИЧЕСКИЙ ТЕКСТ ВСЛУХ.
-
-ШАГ 2 (ТЕКСТ/JSON):
-Генерируй ТОЛЬКО JSON структуру отчета. Без Markdown, без лишнего текста.
-
-Структура JSON:
-{
-  "type": "report",
-  "status": "success",
-  "summary": "Краткое резюме на русском",
-  "damages": [
-     {"part": "Бампер", "type": "Царапина", "description": "Слева"}
-  ]
-}
+Триггер завершения:
+Когда осмотр завершен или получена команда "FINISH_REPORT":
+1. Скажи голосом финальную фразу (например, "Осмотр закончен, формирую отчет").
+2. НЕ ПИШИ ТЕКСТ.
+3. ВЫЗОВИ ФУНКЦИЮ submit_report с параметрами отчета.
 `
                     }]
                 }
@@ -104,17 +125,21 @@ wss.on('connection', (wsClient) => {
             const strData = data.toString();
             const json = JSON.parse(strData);
 
-            // Проверяем, есть ли текстовый ответ (это наш JSON отчета)
+            // Обработка functionCall
             if (json.serverContent?.modelTurn?.parts) {
-                json.serverContent.modelTurn.parts.forEach(part => {
-                    if (part.text) {
-                        console.log("Text received from Gemini:", part.text);
-                        // Отправляем на фронтенд сигнал для закрытия окна и показа таблицы
-                        wsClient.send(JSON.stringify({ type: 'report', text: part.text }));
+                for (const part of json.serverContent.modelTurn.parts) {
+                    if (part.functionCall) {
+                        const { name, args } = part.functionCall;
+                        if (name === 'submit_report') {
+                            console.log("Gemini called submit_report tool", args);
+                            // Формируем сообщение для клиента
+                            wsClient.send(JSON.stringify({ type: 'report', text: JSON.stringify(args) }));
+                        }
                     }
-                });
+                }
             }
-            // Пересылаем аудио данные клиенту как обычно
+
+            // Транслируем всё (включая аудио) клиенту
             wsClient.send(data);
         } catch (e) {
             console.error("Error processing Gemini message:", e);

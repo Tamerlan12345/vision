@@ -1,0 +1,16 @@
+Mock WebSocket Server running on port 3001
+Mock Server: Client connected
+Mock Server received: { realtime_input: { media_chunks: [ [Object] ] } }
+Mock Server received: { realtime_input: { media_chunks: [ [Object] ] } }
+Mock Server received: { realtime_input: { media_chunks: [ [Object] ] } }
+Mock Server received: { realtime_input: { media_chunks: [ [Object] ] } }
+Mock Server received: { realtime_input: { media_chunks: [ [Object] ] } }
+Mock Server received: { realtime_input: { media_chunks: [ [Object] ] } }
+Mock Server received: { realtime_input: { media_chunks: [ [Object] ] } }
+Mock Server received: { realtime_input: { media_chunks: [ [Object] ] } }
+Mock Server received: { realtime_input: { media_chunks: [ [Object] ] } }
+Mock Server received: { realtime_input: { media_chunks: [ [Object] ] } }
+Mock Server received: { realtime_input: { media_chunks: [ [Object] ] } }
+Mock Server received: { client_content: { turns: [ [Object] ], turn_complete: true } }
+Mock Server: Received FINISH_REPORT trigger
+Mock Server: Sent report

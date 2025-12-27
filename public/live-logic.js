@@ -53,10 +53,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
         ws.onopen = () => {
             console.log('WebSocket Connected');
-            updateStatus('Идет осмотр', 'status-listening');
+            updateStatus('Подключение к ИИ...', 'status-waiting'); // Еще раз, на всякий случай
             startBtn.disabled = true;
             stopBtn.disabled = false;
-            startMediaCapture();
+
+            // 1. Send Setup Command FIRST
+            const setupCmd = {
+                type: 'setup',
+                scenarioId: 'inspection_v1' // Optional, for future use
+            };
+            ws.send(JSON.stringify(setupCmd));
+
+            // 2. Wait 1000ms before starting audio stream (Race Condition Fix)
+            setTimeout(() => {
+                console.log("Starting media capture after delay...");
+                updateStatus('Идет осмотр', 'status-listening');
+                startMediaCapture();
+            }, 1000);
         };
 
         ws.onmessage = async (event) => {
@@ -76,10 +89,16 @@ document.addEventListener('DOMContentLoaded', () => {
                      return;
                 }
 
+                // Handle text feedback from server
+                if (json.type === 'text') {
+                    console.log("AI Text:", json.content);
+                }
+
                 if (json.serverContent?.modelTurn?.parts) {
                     const parts = json.serverContent.modelTurn.parts;
                     for (const part of parts) {
                         if (part.text) {
+                            console.log("AI Text (raw):", part.text); // Debug
                             // Проверяем, не является ли текст JSON-отчетом
                             if (part.text.includes('"type": "report"') || part.text.includes('damages')) {
                                 inspectionCompleted = true; // Отчет получен

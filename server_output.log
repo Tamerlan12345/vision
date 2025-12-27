@@ -1,0 +1,10 @@
+
+> netlify-photo-analysis@1.0.0 start
+> node src/server.js
+
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔄 add secrets lifecycle management: https://dotenvx.com/ops
+Server is running on port 3000
+Client connected. Initializing Controller...
+Received setup command
+Error: GEMINI_API_KEY is missing.
+Client disconnected.

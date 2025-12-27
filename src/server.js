@@ -60,11 +60,11 @@ wss.on('connection', (wsClient) => {
 Когда осмотр окончен или получена команда "FINISH_REPORT", ты должен сделать ДВА действия в одном ответе:
 
 ШАГ 1 (ГОЛОС):
-Произнеси вслух фразу: "Осмотр завершен. Составляю отчет."
+Генерируй ТОЛЬКО фразу завершения. Например: "Осмотр окончен, формирую отчет".
+НИКОГДА НЕ ЧИТАЙ JSON ИЛИ ТЕХНИЧЕСКИЙ ТЕКСТ ВСЛУХ.
 
 ШАГ 2 (ТЕКСТ/JSON):
-Сгенерируй JSON с результатами.
-КРИТИЧЕСКИ ВАЖНО: НИКОГДА НЕ ЧИТАЙ JSON ВСЛУХ! JSON ДОЛЖЕН БЫТЬ ТОЛЬКО В ТЕКСТОВОМ ВИДЕ ДЛЯ СИСТЕМЫ.
+Генерируй ТОЛЬКО JSON структуру отчета. Без Markdown, без лишнего текста.
 
 Структура JSON:
 {
@@ -75,10 +75,6 @@ wss.on('connection', (wsClient) => {
      {"part": "Бампер", "type": "Царапина", "description": "Слева"}
   ]
 }
-
-ВАЖНО - ПРИ ЗАВЕРШЕНИИ:
-1. КАНАЛ АУДИО: Скажи "Осмотр завершен".
-2. КАНАЛ ТЕКСТА: Отправь только JSON. НЕ ЧИТАЙ ЕГО ВСЛУХ.
 `
                     }]
                 }
@@ -105,6 +101,7 @@ wss.on('connection', (wsClient) => {
             if (json.serverContent?.modelTurn?.parts) {
                 json.serverContent.modelTurn.parts.forEach(part => {
                     if (part.text) {
+                        console.log("Text received from Gemini:", part.text);
                         // Отправляем на фронтенд сигнал для закрытия окна и показа таблицы
                         wsClient.send(JSON.stringify({ type: 'report', text: part.text }));
                     }
@@ -113,6 +110,7 @@ wss.on('connection', (wsClient) => {
             // Пересылаем аудио данные клиенту как обычно
             wsClient.send(data);
         } catch (e) {
+            console.error("Error processing Gemini message:", e);
             wsClient.send(data);
         }
     });

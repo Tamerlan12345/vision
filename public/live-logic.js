@@ -15,6 +15,10 @@ document.addEventListener('DOMContentLoaded', () => {
     let isRecording = false; // Флаг отправки данных на сервер
     let nextAudioTime = 0;
 
+    // Глобальные переменные для аудио узлов
+    let globalMediaStreamSource = null;
+    let globalScriptProcessor = null;
+
     // Флаг успешного завершения осмотра (получен отчет)
     let inspectionCompleted = false;
 
@@ -66,6 +70,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // 2. Wait 1000ms before starting audio stream (Race Condition Fix)
             setTimeout(() => {
+                if (ws.readyState !== WebSocket.OPEN) {
+                    console.warn("Socket closed before media capture started.");
+                    return;
+                }
                 console.log("Starting media capture after delay...");
                 updateStatus('Идет осмотр', 'status-listening');
                 startMediaCapture();
@@ -103,7 +111,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             if (part.text.includes('"type": "report"') || part.text.includes('damages')) {
                                 inspectionCompleted = true; // Отчет получен
                                 handleReport(part.text);
-                                stopInspectionFull(); // Полная остановка
+                                // Важно: Полная остановка теперь вызывается внутри handleReport или после рендеринга
                             }
                         } else if (part.inlineData && part.inlineData.mimeType.startsWith('audio/')) {
                             // Воспроизводим аудио только если мы еще не завершили осмотр
@@ -120,7 +128,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else if (json.type === 'report') {
                      inspectionCompleted = true; // Отчет получен
                      handleReport(json.text);
-                     stopInspectionFull();
                 }
             } catch (e) {
                 console.error("Error processing message:", e);
@@ -133,7 +140,6 @@ document.addEventListener('DOMContentLoaded', () => {
             // Если соединение закрыто, проверяем был ли получен отчет
             if (inspectionCompleted) {
                  updateStatus('Осмотр завершен', 'status-success');
-                 // Можно добавить зеленый цвет через стиль, если нет класса status-success
                  statusIndicator.style.color = 'green';
             } else {
                  updateStatus('Связь потеряна', 'status-error');
@@ -218,12 +224,12 @@ document.addEventListener('DOMContentLoaded', () => {
             }, 3000);
 
             // Потоковая передача аудио
-            const source = audioContext.createMediaStreamSource(stream);
-            const processor = audioContext.createScriptProcessor(4096, 1, 1);
-            source.connect(processor);
-            processor.connect(audioContext.destination);
+            globalMediaStreamSource = audioContext.createMediaStreamSource(stream);
+            globalScriptProcessor = audioContext.createScriptProcessor(4096, 1, 1);
+            globalMediaStreamSource.connect(globalScriptProcessor);
+            globalScriptProcessor.connect(audioContext.destination);
 
-            processor.onaudioprocess = (e) => {
+            globalScriptProcessor.onaudioprocess = (e) => {
                 if (!isRecording || ws.readyState !== WebSocket.OPEN) return;
                 const inputData = e.inputBuffer.getChannelData(0);
                 const pcm16 = floatTo16BitPCM(inputData);
@@ -278,9 +284,25 @@ document.addEventListener('DOMContentLoaded', () => {
         return window.btoa(binary);
     }
 
+    function stopAudioProcessing() {
+        try {
+            if (globalMediaStreamSource) {
+                globalMediaStreamSource.disconnect();
+                globalMediaStreamSource = null;
+            }
+            if (globalScriptProcessor) {
+                globalScriptProcessor.disconnect();
+                globalScriptProcessor = null;
+            }
+        } catch (e) {
+            console.error("Error disconnecting audio nodes:", e);
+        }
+    }
+
     // Частичная остановка (только запись), но оставляем WS открытым для приема отчета
     function stopRecordingOnly() {
-        isRecording = false; // Блокируем отправку данных в onaudioprocess и setInterval
+        isRecording = false; // Блокируем логику
+        stopAudioProcessing(); // Физически отключаем аудио
 
         if (mediaRecorder && mediaRecorder.state !== 'inactive') {
             mediaRecorder.stop();
@@ -412,15 +434,18 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     stopBtn.addEventListener('click', () => {
-        // 1. Мгновенно прекращаем запись (UX)
+        // Шаг 1: Мгновенно отключаем аудио и останавливаем запись
         stopRecordingOnly();
+
+        // Шаг 2: Блокируем кнопку
+        stopBtn.disabled = true;
         updateStatus('Генерация отчета... Пожалуйста, подождите.', 'status-waiting');
 
-        // 2. Отправляем сигнал завершения на сервер
+        // Шаг 3: Отправляем команду завершения
         if (ws && ws.readyState === WebSocket.OPEN) {
              const msg = {
                  client_content: {
-                     turns: [{ parts: [{ text: "FINISH_REPORT" }], role: "user" }],
+                     turns: [{ parts: [{ text: "Осмотр закончен. FINISH_REPORT" }], role: "user" }],
                      turn_complete: true
                  }
             };

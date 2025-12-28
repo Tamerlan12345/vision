@@ -185,10 +185,24 @@ class GeminiLiveController {
                         }
                         // Handle functionCall
                         if (part.functionCall) {
-                            const { name, args } = part.functionCall;
+                            const { name, args, id } = part.functionCall;
                             if (name === 'submit_report') {
                                 console.log("Gemini called submit_report tool", args);
+
+                                // Action A: Send to Client
                                 this.wsClient.send(JSON.stringify({ type: 'report', text: JSON.stringify(args) }));
+
+                                // Action B: Send tool_response to Gemini (Fix 409)
+                                const toolResponse = {
+                                    tool_response: {
+                                        function_responses: [{
+                                            name: "submit_report",
+                                            response: { result: "Success" },
+                                            id: id
+                                        }]
+                                    }
+                                };
+                                this.geminiWs.send(JSON.stringify(toolResponse));
                             }
                         }
                     }

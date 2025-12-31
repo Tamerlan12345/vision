@@ -1014,11 +1014,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 const polygon = damage.segmentation_polygon;
 
                 const color = damageTypeColors[damage.type] || damageTypeColors.default;
+                // Преобразуем цвет для stroke (делаем его полностью непрозрачным для яркости)
+                const solidColor = color.replace(/rgba?\((\d+),\s*(\d+),\s*(\d+).*/, 'rgb($1,$2,$3)');
 
-                // --- Neon & Dashed Style ---
                 ctx.save();
 
-                // 1. Create path
+                // 1. Рисуем сам полигон
                 ctx.beginPath();
                 ctx.moveTo((polygon[0].x / 100) * img.width, (polygon[0].y / 100) * img.height);
                 for (let i = 1; i < polygon.length; i++) {
@@ -1026,74 +1027,66 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 ctx.closePath();
 
-                // 2. Semi-transparent fill
-                // Extract RGB from color string if possible, or use a fixed opacity override
-                // Assuming color is rgba(r,g,b,0.6), we can replace 0.6 with something else if needed.
-                // But the requirement just says "semi-transparent fill", existing colors are already 0.6.
-                ctx.fillStyle = color;
+                // 2. Яркая заливка (чуть прозрачная, но заметная)
+                ctx.fillStyle = color.replace('0.6', '0.4'); // Немного увеличим прозрачность заливки, чтобы не перекрывать текстуру полностью
                 ctx.fill();
 
-                // 3. Neon stroke (Shadow Blur)
-                ctx.shadowColor = color.replace(/rgba?\((\d+),\s*(\d+),\s*(\d+).*/, 'rgb($1,$2,$3)'); // Solid color for glow
-                ctx.shadowBlur = 15;
-                ctx.strokeStyle = color.replace(/rgba?\((\d+),\s*(\d+),\s*(\d+).*/, 'rgb($1,$2,$3)');
-                ctx.lineWidth = Math.max(3, img.width / 300);
-
-                // Draw polygon contour (solid neon)
-                ctx.setLineDash([]);
+                // 3. Четкая, жирная обводка ("Прям где повреждение")
+                ctx.shadowColor = solidColor; // Неоновое свечение того же цвета
+                ctx.shadowBlur = 10;
+                ctx.strokeStyle = solidColor;
+                ctx.lineWidth = Math.max(4, img.width / 200); // Сделали линию жирнее
+                ctx.lineJoin = 'round'; // Сглаженные углы
+                ctx.setLineDash([]); // Сплошная линия
                 ctx.stroke();
 
                 ctx.restore();
 
-                // 4. Dashed Bounding Box
-                let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                // --- Убрали пунктирный квадрат (Bounding Box), так как он мешал точности ---
+
+                // 4. Метка с номером (прямо над повреждением)
+                // Находим верхнюю точку полигона для размещения метки
+                let minX = Infinity, minY = Infinity;
+                let maxX = -Infinity;
                 polygon.forEach(p => {
-                    minX = Math.min(minX, p.x);
-                    minY = Math.min(minY, p.y);
-                    maxX = Math.max(maxX, p.x);
-                    maxY = Math.max(maxY, p.y);
+                    const px = (p.x / 100) * img.width;
+                    const py = (p.y / 100) * img.height;
+                    if (py < minY) minY = py;
+                    if (px < minX) minX = px;
+                    if (px > maxX) maxX = px;
                 });
 
-                const absMinX = (minX / 100) * img.width;
-                const absMinY = (minY / 100) * img.height;
-                const absWidth = ((maxX - minX) / 100) * img.width;
-                const absHeight = ((maxY - minY) / 100) * img.height;
+                const centerX = minX + (maxX - minX) / 2;
 
-                ctx.save();
-                ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)'; // White dashed box
-                ctx.lineWidth = Math.max(2, img.width / 500);
-                ctx.setLineDash([8, 8]);
-                ctx.strokeRect(absMinX, absMinY, absWidth, absHeight);
-                ctx.restore();
-
-                // 5. Label above the frame (bounding box)
-                const centerX = absMinX + absWidth / 2;
-                const topY = absMinY;
-
-                const fontSize = Math.max(16, img.width / 45);
+                // Рисуем метку
+                const fontSize = Math.max(18, img.width / 40);
                 ctx.font = `bold ${fontSize}px Arial, sans-serif`;
                 const text = damage.id.toString();
                 const textMetrics = ctx.measureText(text);
-                const padding = fontSize * 0.4;
+                const padding = fontSize * 0.5;
                 const boxWidth = textMetrics.width + padding * 2;
                 const boxHeight = fontSize + padding;
 
                 const labelX = centerX;
-                const labelY = topY - boxHeight / 2 - 5; // 5px margin above the damage
+                const labelY = minY - boxHeight / 2 - 5; // Чуть выше самой верхней точки повреждения
 
-                // Draw label background (Black square/circle as requested)
+                ctx.save();
+                // Тень для метки, чтобы читалась на любом фоне
+                ctx.shadowColor = 'rgba(0,0,0,0.5)';
+                ctx.shadowBlur = 4;
+
+                // Фон метки (черный)
                 ctx.fillStyle = 'black';
-                // Using a rounded rect for better look
                 ctx.beginPath();
-                // ctx.roundRect is not supported in all browsers yet, using rect or arc
                 ctx.rect(labelX - boxWidth / 2, labelY - boxHeight / 2, boxWidth, boxHeight);
                 ctx.fill();
 
-                // Draw text
+                // Текст метки (белый)
                 ctx.fillStyle = 'white';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.fillText(text, labelX, labelY);
+                ctx.restore();
             });
         };
         img.src = imageUrl;

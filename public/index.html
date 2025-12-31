@@ -1027,17 +1027,24 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 ctx.closePath();
 
-                // 2. Яркая заливка (чуть прозрачная, но заметная)
-                ctx.fillStyle = color.replace('0.6', '0.4'); // Немного увеличим прозрачность заливки, чтобы не перекрывать текстуру полностью
+                // 2. Слабая заливка (почти прозрачная)
+                ctx.fillStyle = color.replace('0.6', '0.15'); // Едва заметная заливка
                 ctx.fill();
 
-                // 3. Четкая, жирная обводка ("Прям где повреждение")
-                ctx.shadowColor = solidColor; // Неоновое свечение того же цвета
-                ctx.shadowBlur = 10;
+                // 3. Четкая обводка (Pixel-perfect)
+                ctx.lineJoin = 'round';
+                ctx.lineCap = 'round';
+                ctx.setLineDash([]);
+
+                // Контрастная подложка (белая) для видимости на темном фоне
+                ctx.shadowBlur = 0;
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+                ctx.lineWidth = Math.max(3, img.width / 400); // Чуть шире основной линии
+                ctx.stroke();
+
+                // Основная линия (тонкая и точная)
                 ctx.strokeStyle = solidColor;
-                ctx.lineWidth = Math.max(4, img.width / 200); // Сделали линию жирнее
-                ctx.lineJoin = 'round'; // Сглаженные углы
-                ctx.setLineDash([]); // Сплошная линия
+                ctx.lineWidth = Math.max(1.5, img.width / 600); // Тонкая линия
                 ctx.stroke();
 
                 ctx.restore();

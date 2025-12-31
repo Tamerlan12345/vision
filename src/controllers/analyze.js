@@ -26,13 +26,24 @@ exports.handle = async (req, res) => {
 
 GOAL: Identify ALL defects (dents, scratches, scuffs, cracks, rust) and outline them with EXTREME PRECISION.
 
+SEGMENTATION RULES:
+
+Precision is Paramount: Do NOT approximate. The polygon must follow the exact jagged edge of the damage.
+
+No Bounding Boxes: Never draw a simple box or circle around the damage.
+
+Tight Fit: Imagine wrapping the damage in shrink-wrap. There should be ZERO gap between the polygon line and the actual damage pixels.
+
+Complex Shapes: If a scratch is curved or 'S' shaped, the polygon must follow that curve exactly using multiple points. Do not cut corners.
+
 Chain of Thought for Analysis:
 1.  **Scan**: Examine the image for any anomalies in surface reflection, texture, or color.
 2.  **Verify**: Distinguish actual damage from dirt, reflections, or design elements.
 3.  **Segment (CRITICAL)**: Trace the EXACT contour of the damage.
     * For a **scratch**: The polygon must be thin and follow the line of the scratch exactly. Do NOT draw a box around it.
-    * For a **dent**: Trace the distorted area only.
+    * For a **dent**: Trace the distorted area only, excluding normal reflections.
     * **Precision**: The polygon points must hug the edges of the damage tightly. No "air" or loose padding.
+    * **Density**: Use more points to describe curved lines.
 4.  **Describe**: Determine the part name, damage type, and specific location in Russian.
 
 STRICT OUTPUT REQUIREMENTS:

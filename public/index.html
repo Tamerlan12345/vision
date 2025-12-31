@@ -430,6 +430,17 @@
                      <a href="/live.html" class="btn btn-green" style="background-color: var(--success-color); padding: 20px 40px; font-size: 1.2em;">🔍 Начать Интерактивный Осмотр (NEW)</a>
                 </div>
 
+                <div style="margin-bottom: 25px; text-align: left; background: #f9f9f9; padding: 15px; border-radius: 8px;">
+                    <label for="confidence-threshold" style="display: block; font-weight: 600; margin-bottom: 10px;">
+                        Порог уверенности ИИ: <span id="confidence-value" style="color: var(--primary-color);">65</span>%
+                    </label>
+                    <input type="range" id="confidence-threshold" min="0" max="100" value="65" style="width: 100%; cursor: pointer;">
+                    <div style="display: flex; justify-content: space-between; font-size: 0.8em; color: #666; margin-top: 5px;">
+                        <span>Больше деталей (0%)</span>
+                        <span>Только явные (100%)</span>
+                    </div>
+                </div>
+
                 <div class="tab-nav">
                     <button class="tab-btn active" data-tab="tab-multi-photo">Поэтапный осмотр</button>
                     <button class="tab-btn" data-tab="tab-single-photo">Осмотр по 1 фото</button>
@@ -570,6 +581,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const zoomModal = document.getElementById('zoom-modal');
     const zoomCanvas = document.getElementById('zoom-canvas');
     const closeModalBtn = document.querySelector('.modal-close-btn');
+    const confidenceThresholdInput = document.getElementById('confidence-threshold');
+    const confidenceValueDisplay = document.getElementById('confidence-value');
+
+    // --- Управление слайдером ---
+    confidenceThresholdInput.addEventListener('input', (e) => {
+        confidenceValueDisplay.textContent = e.target.value;
+    });
 
     // --- Управление модальным окном ---
     closeModalBtn.addEventListener('click', () => zoomModal.classList.add('hidden'));
@@ -832,7 +850,8 @@ document.addEventListener('DOMContentLoaded', () => {
         processingStatus.textContent = 'Отправка изображений на сервер для анализа...';
 
         const payload = {
-            photos: photos
+            photos: photos,
+            minConfidence: parseInt(confidenceThresholdInput.value, 10)
         };
 
         const response = await fetch(apiUrl, {
@@ -996,10 +1015,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const color = damageTypeColors[damage.type] || damageTypeColors.default;
 
-                // --- Enhanced Highlighting ---
-                ctx.save(); // Save the current state
+                // --- Neon & Dashed Style ---
+                ctx.save();
 
-                // 1. Create the polygon path
+                // 1. Create path
                 ctx.beginPath();
                 ctx.moveTo((polygon[0].x / 100) * img.width, (polygon[0].y / 100) * img.height);
                 for (let i = 1; i < polygon.length; i++) {
@@ -1007,46 +1026,74 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 ctx.closePath();
 
-                // 2. Draw the "glow" effect (a thick, semi-transparent white stroke)
-                ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
-                ctx.lineWidth = Math.max(12, img.width / 70); // Thicker line for glow
-                ctx.lineJoin = 'round';
-                ctx.lineCap = 'round';
-                ctx.stroke();
-
-                // 3. Draw the colored fill
+                // 2. Semi-transparent fill
+                // Extract RGB from color string if possible, or use a fixed opacity override
+                // Assuming color is rgba(r,g,b,0.6), we can replace 0.6 with something else if needed.
+                // But the requirement just says "semi-transparent fill", existing colors are already 0.6.
                 ctx.fillStyle = color;
                 ctx.fill();
 
-                // 4. Draw a thinner, solid border on top for definition
-                ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
-                ctx.lineWidth = Math.max(2, img.width / 400);
+                // 3. Neon stroke (Shadow Blur)
+                ctx.shadowColor = color.replace(/rgba?\((\d+),\s*(\d+),\s*(\d+).*/, 'rgb($1,$2,$3)'); // Solid color for glow
+                ctx.shadowBlur = 15;
+                ctx.strokeStyle = color.replace(/rgba?\((\d+),\s*(\d+),\s*(\d+).*/, 'rgb($1,$2,$3)');
+                ctx.lineWidth = Math.max(3, img.width / 300);
+
+                // Draw polygon contour (solid neon)
+                ctx.setLineDash([]);
                 ctx.stroke();
 
-                ctx.restore(); // Restore to the original state (before path clipping)
+                ctx.restore();
 
-                // 5. Draw the numbered label
-                let sumX = 0, sumY = 0;
-                polygon.forEach(p => { sumX += p.x; sumY += p.y; });
-                const centerX = (sumX / polygon.length / 100) * img.width;
-                const centerY = (sumY / polygon.length / 100) * img.height;
+                // 4. Dashed Bounding Box
+                let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                polygon.forEach(p => {
+                    minX = Math.min(minX, p.x);
+                    minY = Math.min(minY, p.y);
+                    maxX = Math.max(maxX, p.x);
+                    maxY = Math.max(maxY, p.y);
+                });
 
-                const fontSize = Math.max(18, img.width / 40);
+                const absMinX = (minX / 100) * img.width;
+                const absMinY = (minY / 100) * img.height;
+                const absWidth = ((maxX - minX) / 100) * img.width;
+                const absHeight = ((maxY - minY) / 100) * img.height;
+
+                ctx.save();
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)'; // White dashed box
+                ctx.lineWidth = Math.max(2, img.width / 500);
+                ctx.setLineDash([8, 8]);
+                ctx.strokeRect(absMinX, absMinY, absWidth, absHeight);
+                ctx.restore();
+
+                // 5. Label above the frame (bounding box)
+                const centerX = absMinX + absWidth / 2;
+                const topY = absMinY;
+
+                const fontSize = Math.max(16, img.width / 45);
                 ctx.font = `bold ${fontSize}px Arial, sans-serif`;
                 const text = damage.id.toString();
                 const textMetrics = ctx.measureText(text);
+                const padding = fontSize * 0.4;
+                const boxWidth = textMetrics.width + padding * 2;
+                const boxHeight = fontSize + padding;
 
-                // Draw a background for the text
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+                const labelX = centerX;
+                const labelY = topY - boxHeight / 2 - 5; // 5px margin above the damage
+
+                // Draw label background (Black square/circle as requested)
+                ctx.fillStyle = 'black';
+                // Using a rounded rect for better look
                 ctx.beginPath();
-                ctx.arc(centerX, centerY, textMetrics.width, 0, 2 * Math.PI);
+                // ctx.roundRect is not supported in all browsers yet, using rect or arc
+                ctx.rect(labelX - boxWidth / 2, labelY - boxHeight / 2, boxWidth, boxHeight);
                 ctx.fill();
 
-                // Draw the text
+                // Draw text
                 ctx.fillStyle = 'white';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                ctx.fillText(text, centerX, centerY + 1); // Small offset for better centering
+                ctx.fillText(text, labelX, labelY);
             });
         };
         img.src = imageUrl;
